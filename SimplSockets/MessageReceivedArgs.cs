@@ -3,7 +3,7 @@
 namespace SimplSockets
 {
     /// <summary>
-    /// Message received args.
+    /// PooledMessage received args.
     /// </summary>
     public class MessageReceivedArgs : EventArgs
     {

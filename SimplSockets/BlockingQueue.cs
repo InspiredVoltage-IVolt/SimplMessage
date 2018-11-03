@@ -14,7 +14,7 @@ namespace SimplSockets
         // The underlying queue
         private readonly List<T> _queue = new List<T>();
         // The semaphore used for blocking
-        private readonly Semaphore _semaphore = new Semaphore(0, Int32.MaxValue);
+        private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(0, Int32.MaxValue);
 
         /// <summary>
         /// Enqueues an item.
@@ -48,7 +48,7 @@ namespace SimplSockets
         /// <returns>An item.</returns>
         public T Dequeue()
         {
-            if (!_semaphore.WaitOne(1000))
+            if (!_semaphore.Wait(1000))
             {
                 return default(T);
             }

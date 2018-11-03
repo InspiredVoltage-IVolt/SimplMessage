@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -14,108 +13,135 @@ namespace SimplSockets
     public class SimplSocketServer : ISimplSocketServer
     {
         // The function that creates a new socket
-        private readonly Func<Socket> _socketFunc = null;
+        private readonly Func<Socket> _socketFunc           = null;
         // The currently used socket
-        private Socket _socket = null;
+        private Socket                _socket               = null;
+        // Lock for socket access
+        private readonly object      _socketLock            = new object();
         // The message buffer size to use for send/receive
-        private readonly int _messageBufferSize = 0;
+        private readonly int          _messageBufferSize    = 0;
         // The communication timeout, in milliseconds
-        private readonly int _communicationTimeout = 0;
+        private readonly int          _communicationTimeout = 0;
         // The maximum message size
-        private readonly int _maxMessageSize = 0;
+        private readonly int          _maxMessageSize       = 0;
         // Whether or not to use the Nagle algorithm
-        private readonly bool _useNagleAlgorithm = false;
+        private readonly bool         _useNagleAlgorithm    = false;
         // The linger option
-        private readonly LingerOption _lingerOption = new LingerOption(true, 0);
+        private readonly LingerOption _lingerOption         = new LingerOption(true, 0);
 
         // Whether or not the socket is currently listening
-        private volatile bool _isListening = false;
-        private readonly object _isListeningLock = new object();
+        private volatile bool         _isListening          = false;
+        private readonly object       _isListeningLock      = new object();
 
         // The currently connected clients
-        private readonly List<ConnectedClient> _currentlyConnectedClients = null;
-        private readonly ReaderWriterLockSlim _currentlyConnectedClientsLock = new ReaderWriterLockSlim();
+        private readonly List<ConnectedClient> _currentlyConnectedClients     = null;
+        private readonly ReaderWriterLockSlim  _currentlyConnectedClientsLock = new ReaderWriterLockSlim();
 
         // The currently connected client receive queues
         private readonly Dictionary<Socket, BlockingQueue<SocketAsyncEventArgs>> _currentlyConnectedClientsReceiveQueues = null;
         private readonly ReaderWriterLockSlim _currentlyConnectedClientsReceiveQueuesLock = new ReaderWriterLockSlim();
 
         // Various pools
-        private readonly Pool<SocketAsyncEventArgs> _socketAsyncEventArgsSendPool = null;
-        private readonly Pool<SocketAsyncEventArgs> _socketAsyncEventArgsReceivePool = null;
+        private readonly Pool<SocketAsyncEventArgs> _socketAsyncEventArgsSendPool      = null;
+        private readonly Pool<SocketAsyncEventArgs> _socketAsyncEventArgsReceivePool   = null;
         private readonly Pool<SocketAsyncEventArgs> _socketAsyncEventArgsKeepAlivePool = null;
-        private readonly Pool<ReceivedMessage> _receivedMessagePool = null;
-        private readonly Pool<MessageReceivedArgs> _messageReceivedArgsPool = null;
-        private readonly Pool<SocketErrorArgs> _socketErrorArgsPool = null;
+        private readonly Pool<ReceivedMessage>      _receivedMessagePool               = null;
+        private readonly Pool<MessageReceivedArgs>  _messageReceivedArgsPool           = null;
+        private readonly Pool<SocketErrorArgs>      _socketErrorArgsPool               = null;
 
         // A completely blind guess at the number of expected connections to this server. 100 sounds good, right? Right.
-        private const int PREDICTED_CONNECTION_COUNT = 100;
+        private const int PredictedConnectionCount = 100;
+
+        /// <summary>
+        /// Convenience function to creates a new TCP socket with default settings. This socket can be modified and can be used to initialize the constructor with.
+        /// </summary>
+        /// <returns>instantiated Socket</returns>
+        public static Socket GetSocket()
+        {
+            return new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+        }
+
+        /// <summary>
+        /// The constructor. It is initialized with a default socket.
+        /// </summary>
+        /// <param name="messageBufferSize"   >The message buffer size to use for send/receive.</param>
+        /// <param name="communicationTimeout">The communication timeout, in milliseconds.</param>
+        /// <param name="maxMessageSize"      >The maximum message size.</param>
+        /// <param name="useNagleAlgorithm"   >Whether or not to use the Nagle algorithm.</param>
+        public SimplSocketServer(int messageBufferSize = 65536, int communicationTimeout = 10000, int maxMessageSize = 10 * 1024 * 1024, bool useNagleAlgorithm = false) : this
+        (
+            GetSocket,
+            messageBufferSize,
+            communicationTimeout,
+            maxMessageSize,
+            useNagleAlgorithm)
+        { }
 
         /// <summary>
         /// The constructor.
         /// </summary>
-        /// <param name="socketFunc">The function that creates a new socket. Use this to specify your socket constructor and initialize settings.</param>
-        /// <param name="messageBufferSize">The message buffer size to use for send/receive.</param>
+        /// <param name="socketFunc"          >The function that creates a new socket. Use this to specify your socket constructor and initialize settings.</param>
+        /// <param name="messageBufferSize"   >The message buffer size to use for send/receive.</param>
         /// <param name="communicationTimeout">The communication timeout, in milliseconds.</param>
-        /// <param name="maxMessageSize">The maximum message size.</param>
-        /// <param name="useNagleAlgorithm">Whether or not to use the Nagle algorithm.</param>
-        public SimplSocketServer(Func<Socket> socketFunc, int messageBufferSize = 65536, int communicationTimeout = 10000, int maxMessageSize = 10 * 1024 * 1024, bool useNagleAlgorithm = false)
+        /// <param name="maxMessageSize"      >The maximum message size.</param>
+        /// <param name="useNagleAlgorithm"   >Whether or not to use the Nagle algorithm.</param>
+        public SimplSocketServer(Func<Socket> socketFunc, int messageBufferSize = 65536, int communicationTimeout = 10*10000, int maxMessageSize = 10 * 1024 * 1024, bool useNagleAlgorithm = false)
         {
             // Sanitize
             if (socketFunc == null)
             {
-                throw new ArgumentNullException("socketFunc");
+                throw new ArgumentNullException(nameof(socketFunc));
             }
             if (messageBufferSize < 512)
             {
-                throw new ArgumentException("must be >= 512", "messageBufferSize");
+                throw new ArgumentException("must be >= 512", nameof(messageBufferSize));
             }
             if (communicationTimeout < 5000)
             {
-                throw new ArgumentException("must be >= 5000", "communicationTimeout");
+                throw new ArgumentException("must be >= 5000", nameof(communicationTimeout));
             }
             if (maxMessageSize < 1024)
             {
-                throw new ArgumentException("must be >= 1024", "maxMessageSize");
+                throw new ArgumentException("must be >= 1024", nameof(maxMessageSize));
             }
 
-            _socketFunc = socketFunc;
-            _messageBufferSize = messageBufferSize;
+            _socketFunc           = socketFunc;
+            _messageBufferSize    = messageBufferSize;
             _communicationTimeout = communicationTimeout;
-            _maxMessageSize = maxMessageSize;
-            _useNagleAlgorithm = useNagleAlgorithm;
+            _maxMessageSize       = maxMessageSize;
+            _useNagleAlgorithm    = useNagleAlgorithm;
 
-            _currentlyConnectedClients = new List<ConnectedClient>(PREDICTED_CONNECTION_COUNT);
-            _currentlyConnectedClientsReceiveQueues = new Dictionary<Socket, BlockingQueue<SocketAsyncEventArgs>>(PREDICTED_CONNECTION_COUNT);
+            _currentlyConnectedClients              = new List<ConnectedClient>(PredictedConnectionCount);
+            _currentlyConnectedClientsReceiveQueues = new Dictionary<Socket, BlockingQueue<SocketAsyncEventArgs>>(PredictedConnectionCount);
 
             // Create the pools
-            _socketAsyncEventArgsSendPool = new Pool<SocketAsyncEventArgs>(PREDICTED_CONNECTION_COUNT, () =>
+            _socketAsyncEventArgsSendPool = new Pool<SocketAsyncEventArgs>(PredictedConnectionCount, () =>
             {
                 var poolItem = new SocketAsyncEventArgs();
                 poolItem.Completed += OperationCallback;
                 return poolItem;
             });
-            _socketAsyncEventArgsReceivePool = new Pool<SocketAsyncEventArgs>(PREDICTED_CONNECTION_COUNT, () =>
+            _socketAsyncEventArgsReceivePool = new Pool<SocketAsyncEventArgs>(PredictedConnectionCount, () =>
             {
                 var poolItem = new SocketAsyncEventArgs();
                 poolItem.SetBuffer(new byte[messageBufferSize], 0, messageBufferSize);
                 poolItem.Completed += OperationCallback;
                 return poolItem;
             });
-            _socketAsyncEventArgsKeepAlivePool = new Pool<SocketAsyncEventArgs>(PREDICTED_CONNECTION_COUNT, () =>
+            _socketAsyncEventArgsKeepAlivePool = new Pool<SocketAsyncEventArgs>(PredictedConnectionCount, () =>
             {
                 var poolItem = new SocketAsyncEventArgs();
                 poolItem.SetBuffer(ProtocolHelper.ControlBytesPlaceholder, 0, ProtocolHelper.ControlBytesPlaceholder.Length);
                 poolItem.Completed += OperationCallback;
                 return poolItem;
             });
-            _receivedMessagePool = new Pool<ReceivedMessage>(PREDICTED_CONNECTION_COUNT, () => new ReceivedMessage(), receivedMessage =>
+            _receivedMessagePool = new Pool<ReceivedMessage>(PredictedConnectionCount, () => new ReceivedMessage(), receivedMessage =>
             {
                 receivedMessage.Message = null;
-                receivedMessage.Socket = null;
+                receivedMessage.Socket  = null;
             });
-            _messageReceivedArgsPool = new Pool<MessageReceivedArgs>(PREDICTED_CONNECTION_COUNT, () => new MessageReceivedArgs(), messageReceivedArgs => { messageReceivedArgs.ReceivedMessage = null; });
-            _socketErrorArgsPool = new Pool<SocketErrorArgs>(PREDICTED_CONNECTION_COUNT, () => new SocketErrorArgs(), socketErrorArgs => { socketErrorArgs.Exception = null; });
+            _messageReceivedArgsPool = new Pool<MessageReceivedArgs>(PredictedConnectionCount, () => new MessageReceivedArgs(), messageReceivedArgs => { messageReceivedArgs.ReceivedMessage = null; });
+            _socketErrorArgsPool     = new Pool<SocketErrorArgs>    (PredictedConnectionCount, () => new SocketErrorArgs()    , socketErrorArgs     => { socketErrorArgs.Exception           = null; });
         }
 
         /// <summary>
@@ -127,7 +153,7 @@ namespace SimplSockets
             // Sanitize
             if (localEndpoint == null)
             {
-                throw new ArgumentNullException("localEndpoint");
+                throw new ArgumentNullException(nameof(localEndpoint));
             }
 
             lock (_isListeningLock)
@@ -144,7 +170,7 @@ namespace SimplSockets
             _socket = _socketFunc();
 
             _socket.Bind(localEndpoint);
-            _socket.Listen(PREDICTED_CONNECTION_COUNT);
+            _socket.Listen(PredictedConnectionCount);
 
             // very important to not have buffer for accept, see remarks on 288 byte threshold: https://msdn.microsoft.com/en-us/library/system.net.sockets.socket.acceptasync(v=vs.110).aspx
             var socketAsyncEventArgs = new SocketAsyncEventArgs();
@@ -170,14 +196,23 @@ namespace SimplSockets
         /// <param name="message">The message to send.</param>
         public void Broadcast(byte[] message)
         {
+            Broadcast(new Message(message));
+        }
+        
+        /// <summary>
+        /// Broadcasts a message to all connected clients without waiting for a response (one-way communication).
+        /// </summary>
+        /// <param name="message">The message to send.</param>
+        public void Broadcast(IMessage message)
+        {
             // Sanitize
-            if (message == null)
+            if (message == null )
             {
-                throw new ArgumentNullException("message");
+                throw new ArgumentNullException(nameof(message));
             }
 
             // Get the current thread ID
-            int threadId = Thread.CurrentThread.ManagedThreadId;
+            int threadId = GetThreadId();
 
             var messageWithControlBytes = ProtocolHelper.AppendControlBytesToMessage(message, threadId);
 
@@ -190,8 +225,8 @@ namespace SimplSockets
                 foreach (var client in _currentlyConnectedClients)
                 {
                     var socketAsyncEventArgs = _socketAsyncEventArgsSendPool.Pop();
-                    socketAsyncEventArgs.SetBuffer(messageWithControlBytes, 0, messageWithControlBytes.Length);
-
+                    socketAsyncEventArgs.SetBuffer(messageWithControlBytes.Content, 0, messageWithControlBytes.Length);
+                    socketAsyncEventArgs.UserToken = messageWithControlBytes;
                     // Post send on the listening socket
                     if (!TryUnsafeSocketOperation(client.Socket, SocketAsyncOperation.Send, socketAsyncEventArgs))
                     {
@@ -219,6 +254,17 @@ namespace SimplSockets
             }
         }
 
+
+        private static int GetThreadId()
+        {
+#if (WINDOWS_UWP)
+            int threadId = Task.CurrentId ?? 0;
+#else
+            int threadId = Thread.CurrentThread.ManagedThreadId;
+#endif
+            return threadId;
+        }
+
         /// <summary>
         /// Sends a message back to the client.
         /// </summary>
@@ -226,10 +272,20 @@ namespace SimplSockets
         /// <param name="receivedMessage">The received message which is being replied to.</param>
         public void Reply(byte[] message, ReceivedMessage receivedMessage)
         {
+            Reply(new Message(message), receivedMessage);
+        }
+       
+        /// <summary>
+        /// Sends a message back to the client.
+        /// </summary>
+        /// <param name="message">The reply message to send.</param>
+        /// <param name="receivedMessage">The received message which is being replied to.</param>
+        public void Reply(IMessage message, ReceivedMessage receivedMessage)
+        {
             // Sanitize
-            if (message == null)
+            if (message == null) 
             {
-                throw new ArgumentNullException("message");
+                throw new ArgumentNullException(nameof(message));
             }
             if (receivedMessage.Socket == null)
             {
@@ -237,12 +293,51 @@ namespace SimplSockets
             }
 
             var messageWithControlBytes = ProtocolHelper.AppendControlBytesToMessage(message, receivedMessage.ThreadId);
-
-            var socketAsyncEventArgs = _socketAsyncEventArgsSendPool.Pop();
-            socketAsyncEventArgs.SetBuffer(messageWithControlBytes, 0, messageWithControlBytes.Length);
+            var socketAsyncEventArgs    = _socketAsyncEventArgsSendPool.Pop();
+            socketAsyncEventArgs.SetBuffer(messageWithControlBytes.Content, 0, messageWithControlBytes.Length);
+            socketAsyncEventArgs.UserToken = messageWithControlBytes;
 
             // Do the send to the appropriate client
             TryUnsafeSocketOperation(receivedMessage.Socket, SocketAsyncOperation.Send, socketAsyncEventArgs);
+        }
+
+        private bool CloseSocket(ref Socket socket, bool disposeSocket=true)
+        {
+            //Console.Out.WriteLine($"Closing socket");
+            lock (_socketLock)
+            {
+                if (socket == null) return true;
+                // Close the socket
+                try
+                {
+                    if (socket.Connected) socket.Shutdown(SocketShutdown.Both);
+                }
+                catch (SocketException)
+                {
+                    // Socket was not able to be shutdown, likely because it was never opened
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Socket was already closed/disposed, so return out to prevent raising the Error event multiple times
+                    // This is most likely to happen when an error occurs during heavily multithreaded use
+                    return true;
+                }
+
+#if (!WINDOWS_UWP)
+                if (socket.Connected) { socket?.Disconnect(false); }
+
+                socket?.Close();
+#endif
+                if (disposeSocket) DisposeSocket(ref socket);
+            }
+
+            return false;
+        }
+
+        private void DisposeSocket(ref Socket socket)
+        {
+            socket?.Dispose();
+            socket = null;
         }
 
         /// <summary>
@@ -250,17 +345,7 @@ namespace SimplSockets
         /// </summary>
         public void Close()
         {
-            // Close the socket
-            try
-            {
-                _socket.Shutdown(SocketShutdown.Both);
-            }
-            catch
-            {
-                // Ignore
-            }
-
-            _socket.Close();
+            CloseSocket(ref _socket);
 
             // Dump all clients
             var clientList = new List<ConnectedClient>();
@@ -289,13 +374,7 @@ namespace SimplSockets
         /// <summary>
         /// Gets the currently connected client count.
         /// </summary>
-        public int CurrentlyConnectedClientCount
-        {
-            get
-            {
-                return _currentlyConnectedClients.Count;
-            }
-        }
+        public int CurrentlyConnectedClientCount => _currentlyConnectedClients.Count;
 
         /// <summary>
         /// An event that is fired when a client successfully connects to the server. Hook into this to do something when a connection succeeds.
@@ -318,16 +397,18 @@ namespace SimplSockets
         public void Dispose()
         {
             // Close/dispose the socket
-            _socket.Close();
+            CloseSocket(ref _socket);
+            //_socket.Close();
         }
 
-        private void KeepAlive()
+        private async void KeepAlive()
         {
             List<Socket> bustedClients = null;
 
             while (true)
             {
-                Thread.Sleep(1000);
+                //Thread.Sleep(1000);
+                await Task.Delay(1000);
 
                 if (_currentlyConnectedClients.Count == 0)
                 {
@@ -443,12 +524,7 @@ namespace SimplSockets
             }
 
             // Fire the event if needed
-            var clientConnected = ClientConnected;
-            if (clientConnected != null)
-            {
-                // Fire the event 
-                clientConnected(this, EventArgs.Empty);
-            }
+            ClientConnected?.Invoke(this, EventArgs.Empty);
 
             // Create receive buffer queue for this client
             _currentlyConnectedClientsReceiveQueuesLock.EnterWriteLock();
@@ -483,6 +559,13 @@ namespace SimplSockets
                 return;
             }
 
+            // Return the memory to buffer
+            //PooledMessage.Return(socketAsyncEventArgs.Buffer);
+            // Notify that data has been send. This could possibly return the memory to buffer
+            (socketAsyncEventArgs.UserToken as PooledMessage)?.Sent();
+            // Clear the buffer reference
+            socketAsyncEventArgs.SetBuffer(null, 0, 0);
+            // Push the socketAsyncEventArgs back in the pool
             _socketAsyncEventArgsSendPool.Push(socketAsyncEventArgs);
         }
 
@@ -535,13 +618,12 @@ namespace SimplSockets
 
         private void ProcessReceivedMessage(ConnectedClient connectedClient)
         {
-            int bytesToRead = -1;
-            int threadId = -1;
-
-            int availableTest = 0;
+            int bytesToRead        = -1;
+            int threadId           = -1;
+            int availableTest      = 0;
             int controlBytesOffset = 0;
-            byte[] protocolBuffer = new byte[ProtocolHelper.ControlBytesPlaceholder.Length];
-            byte[] resultBuffer = null;
+            byte[] protocolBuffer  = new byte[ProtocolHelper.ControlBytesPlaceholder.Length];
+            byte[] resultBuffer    = null;
 
             var handler = connectedClient.Socket;
 
@@ -629,20 +711,15 @@ namespace SimplSockets
                     if (bytesToRead != 0)
                     {
                         // Initialize buffer if needed
-                        if (resultBuffer == null)
-                        {
-                            resultBuffer = new byte[bytesToRead];
-                        }
+                        if (resultBuffer == null) { resultBuffer = new byte[bytesToRead]; }
 
                         var bytesAvailable = bytesRead - currentOffset;
-
-                        var bytesToCopy = Math.Min(bytesToRead, bytesAvailable);
-
+                        var bytesToCopy    = Math.Min(bytesToRead, bytesAvailable);
                         // Copy bytes to buffer
                         Buffer.BlockCopy(buffer, currentOffset, resultBuffer, resultBuffer.Length - bytesToRead, bytesToCopy);
 
                         currentOffset += bytesToCopy;
-                        bytesToRead -= bytesToCopy;
+                        bytesToRead   -= bytesToCopy;
                     }
 
                     // Check if we're done
@@ -658,7 +735,7 @@ namespace SimplSockets
                         }
 
                         bytesToRead = -1;
-                        threadId = -1;
+                        threadId    = -1;
 
                         connectedClient.LastResponse = DateTime.UtcNow;
                     }
@@ -671,17 +748,17 @@ namespace SimplSockets
 
         private void CompleteMessage(Socket handler, int threadId, byte[] message)
         {
-            var receivedMessage = _receivedMessagePool.Pop();
-            receivedMessage.Socket = handler;
+            var receivedMessage      = _receivedMessagePool.Pop();
+            receivedMessage.Socket   = handler;
             receivedMessage.ThreadId = threadId;
-            receivedMessage.Message = message;
+            receivedMessage.Message  = message;
 
             // Fire the event if needed 
             var messageReceived = MessageReceived;
             if (messageReceived != null)
             {
                 // Create the message received args 
-                var messageReceivedArgs = _messageReceivedArgsPool.Pop();
+                var messageReceivedArgs             = _messageReceivedArgsPool.Pop();
                 messageReceivedArgs.ReceivedMessage = receivedMessage;
                 // Fire the event 
                 messageReceived(this, messageReceivedArgs);
@@ -700,40 +777,21 @@ namespace SimplSockets
         /// <param name="ex">The exception that the socket raised.</param>
         private void HandleCommunicationError(Socket socket, Exception ex)
         {
-            lock (socket)
-            {
-                // Close the socket
-                try
-                {
-                    socket.Shutdown(SocketShutdown.Both);
-                }
-                catch (SocketException)
-                {
-                    // Socket was not able to be shutdown, likely because it was never opened
-                }
-                catch (ObjectDisposedException)
-                {
-                    // Socket was already closed/disposed, so return out to prevent raising the Error event multiple times
-                    // This is most likely to happen when an error occurs during heavily multithreaded use
-                    return;
-                }
-
-                // Close / dispose the socket
-                socket.Close();
-            }
+            // Close but do not dispose
+            CloseSocket(ref socket,false); 
 
             // Remove receive buffer queue
             _currentlyConnectedClientsReceiveQueuesLock.EnterWriteLock();
             try
             {
-                _currentlyConnectedClientsReceiveQueues.Remove(socket);
+                if (socket!=null) _currentlyConnectedClientsReceiveQueues.Remove(socket);
             }
             finally
             {
                 _currentlyConnectedClientsReceiveQueuesLock.ExitWriteLock();
             }
 
-            // Try to unenroll from currently connected client sockets
+            // Try to un-enroll from currently connected client sockets
             _currentlyConnectedClientsLock.EnterWriteLock();
             try
             {
@@ -745,12 +803,14 @@ namespace SimplSockets
                         _currentlyConnectedClients.RemoveAt(i);
                         break;
                     }
-                }
+                }                
             }
             finally
             {
                 _currentlyConnectedClientsLock.ExitWriteLock();
             }
+            // After un-enrollment, dispose the socket
+            DisposeSocket(ref socket);
 
             // Raise the error event 
             var error = Error;
@@ -809,9 +869,9 @@ namespace SimplSockets
         {
             public ConnectedClient(Socket socket)
             {
-                if (socket == null) throw new ArgumentNullException("socket");
+                if (socket == null) throw new ArgumentNullException(nameof(socket));
 
-                Socket = socket;
+                Socket       = socket;
                 LastResponse = DateTime.UtcNow;
             }
 

@@ -3,8 +3,6 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
 VisualStudioVersion = 15.0.28010.2046
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimplSockets", "SimplSockets\SimplSockets.csproj", "{CBAEB3E0-AF0D-4E30-BE69-7ED63F58EDEF}"
-EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{FA9E9333-3010-4D4D-918A-D881895115B4}"
 	ProjectSection(SolutionItems) = preProject
 		LICENSE.txt = LICENSE.txt
@@ -15,16 +13,14 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SimplSocketsClient", "Simpl
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SimplSocketsServer", "SimplSocketsServer\SimplSocketsServer.csproj", "{BDFBAD55-76CE-4144-A196-DD01063F3EFA}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimplSockets", "SimplSockets\SimplSockets.csproj", "{893EFEB2-40C5-4D72-824C-32CA610AE837}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{CBAEB3E0-AF0D-4E30-BE69-7ED63F58EDEF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{CBAEB3E0-AF0D-4E30-BE69-7ED63F58EDEF}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{CBAEB3E0-AF0D-4E30-BE69-7ED63F58EDEF}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{CBAEB3E0-AF0D-4E30-BE69-7ED63F58EDEF}.Release|Any CPU.Build.0 = Release|Any CPU
 		{BC1F3D44-FBB3-4009-BE47-30B1CD61655C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{BC1F3D44-FBB3-4009-BE47-30B1CD61655C}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{BC1F3D44-FBB3-4009-BE47-30B1CD61655C}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -33,6 +29,10 @@ Global
 		{BDFBAD55-76CE-4144-A196-DD01063F3EFA}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{BDFBAD55-76CE-4144-A196-DD01063F3EFA}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{BDFBAD55-76CE-4144-A196-DD01063F3EFA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{893EFEB2-40C5-4D72-824C-32CA610AE837}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{893EFEB2-40C5-4D72-824C-32CA610AE837}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{893EFEB2-40C5-4D72-824C-32CA610AE837}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{893EFEB2-40C5-4D72-824C-32CA610AE837}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

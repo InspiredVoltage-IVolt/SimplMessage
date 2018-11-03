@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading;
+﻿using System.Threading;
 
 namespace SimplSockets
 {
@@ -12,6 +8,6 @@ namespace SimplSockets
     internal class MultiplexerData
     {
         public byte[] Message { get; set; }
-        public ManualResetEvent ManualResetEvent { get; set; }
+        public ManualResetEventSlim ManualResetEventSlim { get; set; }
     }
 }

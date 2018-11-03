@@ -10,10 +10,10 @@ namespace SimplSockets
     internal sealed class Pool<T> where T : class
     {
         // The queue that holds the items
-        private readonly List<T> _queue = null;
-        private volatile int _queueIndex = 0;
+        private readonly List<T>   _queue           = null;
+        private volatile int       _queueIndex      = 0;
         // The method that creates a new item
-        private readonly Func<T> _newItemMethod = null;
+        private readonly Func<T>   _newItemMethod   = null;
         // The method that resets an item's state
         private readonly Action<T> _resetItemMethod = null;
 
@@ -25,15 +25,15 @@ namespace SimplSockets
         /// <param name="resetItemMethod">The method that resets an item's state. Optional.</param>
         public Pool(int poolCount, Func<T> newItemMethod, Action<T> resetItemMethod = null)
         {
-            _queue = new List<T>(poolCount);
-            _newItemMethod = newItemMethod;
+            _queue           = new List<T>(poolCount);
+            _newItemMethod   = newItemMethod;
             _resetItemMethod = resetItemMethod;
 
             // Create new items
-            for (int i = 0; i < poolCount; i++)
+            for (var i = 0; i < poolCount; i++)
             {
                 var item = _newItemMethod();
-                if (_resetItemMethod != null) _resetItemMethod(item);
+                _resetItemMethod?.Invoke(item);
                 _queue.Add(item);
             }
         }
@@ -48,8 +48,9 @@ namespace SimplSockets
             if (_queueIndex == 0)
             {
                 // Dispose if applicable
-                var disposable = item as IDisposable;
-                if (disposable != null) disposable.Dispose();
+                if (item is IDisposable disposable) disposable.Dispose();
+                //var disposable = item as IDisposable;
+                //if (disposable != null) disposable.Dispose();
                 return;
             }
 
@@ -63,8 +64,9 @@ namespace SimplSockets
                 if (_queueIndex == 0)
                 {
                     // Dispose if applicable
-                    var disposable = item as IDisposable;
-                    if (disposable != null) disposable.Dispose();
+                    if (item is IDisposable disposable) disposable.Dispose();
+                    //var disposable = item as IDisposable;
+                    //if (disposable != null) disposable.Dispose();
                     return;
                 }
 

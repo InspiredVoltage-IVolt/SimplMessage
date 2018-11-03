@@ -1,7 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 
 namespace SimplSockets
 {
@@ -12,26 +9,48 @@ namespace SimplSockets
         /// </summary>
         public static readonly byte[] ControlBytesPlaceholder = new byte[] { 0, 0, 0, 0, 0, 0, 0, 0 };
 
-        public static byte[] AppendControlBytesToMessage(byte[] message, int threadId)
+        public static PooledMessage AppendControlBytesToMessage(byte[] message, int threadId)
         {
+            // todo: use Array Pool for larger blocks: https://adamsitnik.com/Array-Pool/
+
             // Create room for the control bytes
-            var messageWithControlBytes = new byte[ControlBytesPlaceholder.Length + message.Length];
-            Buffer.BlockCopy(message, 0, messageWithControlBytes, ControlBytesPlaceholder.Length, message.Length);
+            var messageWithControlBytes = PooledMessage.Rent(ControlBytesPlaceholder.Length + message.Length);
+            // Tell messageWithControlBytes that it can be returned to the pool after it has been send
+            messageWithControlBytes.ReturnAfterSend();
+            // Copy data to message with control bytes
+            Buffer.BlockCopy(message, 0, messageWithControlBytes.Content, ControlBytesPlaceholder.Length, message.Length);
             // Set the control bytes on the message
-            SetControlBytes(messageWithControlBytes, message.Length, threadId);
+            SetControlBytes(messageWithControlBytes.Content, message.Length, threadId);
+            return messageWithControlBytes;
+        }
+
+        public static PooledMessage AppendControlBytesToMessage(IMessage message, int threadId)
+        {
+            // todo: use Array Pool for larger blocks: https://adamsitnik.com/Array-Pool/
+
+            // Create room for the control bytes
+            var messageWithControlBytes = PooledMessage.Rent(ControlBytesPlaceholder.Length + message.Length);
+            // Tell messageWithControlBytes that it can be returned to the pool after it has been send
+            messageWithControlBytes.ReturnAfterSend();
+            // Copy data to message with control bytes
+            Buffer.BlockCopy(message.Content, 0, messageWithControlBytes.Content, ControlBytesPlaceholder.Length, message.Length);
+            // Set the control bytes on the message
+            SetControlBytes(messageWithControlBytes.Content, message.Length, threadId);
+            // Tell message it has been sent. It may decide to return tool pool
+            message.Sent();
             return messageWithControlBytes;
         }
 
         public static void SetControlBytes(byte[] buffer, int length, int threadId)
         {
-            // Set little endian message length
+            // Set little-endian message length
             buffer[0] = (byte)length;
-            buffer[1] = (byte)((length >> 8) & 0xFF);
+            buffer[1] = (byte)((length >>  8) & 0xFF);
             buffer[2] = (byte)((length >> 16) & 0xFF);
             buffer[3] = (byte)((length >> 24) & 0xFF);
-            // Set little endian thread id
+            // Set little-endian thread id
             buffer[4] = (byte)threadId;
-            buffer[5] = (byte)((threadId >> 8) & 0xFF);
+            buffer[5] = (byte)((threadId >>  8) & 0xFF);
             buffer[6] = (byte)((threadId >> 16) & 0xFF);
             buffer[7] = (byte)((threadId >> 24) & 0xFF);
         }
@@ -39,7 +58,7 @@ namespace SimplSockets
         public static void ExtractControlBytes(byte[] buffer, out int messageLength, out int threadId)
         {
             messageLength = (buffer[3] << 24) | (buffer[2] << 16) | (buffer[1] << 8) | buffer[0];
-            threadId = (buffer[7] << 24) | (buffer[6] << 16) | (buffer[5] << 8) | buffer[4];
+            threadId      = (buffer[7] << 24) | (buffer[6] << 16) | (buffer[5] << 8) | buffer[4];
         }
     }
 }
