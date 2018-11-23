@@ -1,14 +1,8 @@
-SIMPLSOCKETS
+SIMPLSOCKETS & SIMPLMESSAGE
 ===========
 
 
-A spinoff library of Dache that provides highly efficient, scalable, simple socket communication.
-
-**WEB:**   http://www.dache.io
-
-**EMAIL:** [info@dache.io](mailto:info@dache.io)
-
-**NUGET:** [SimplSockets](http://www.nuget.org/packages/SimplSockets)
+A messaging library ofthat provides highly efficient, scalable, simple socket communication together with a higher level library that facilitates sending and receiving of arbitrary objects.
 
 
 INSTALLATION INSTRUCTIONS
@@ -22,3 +16,11 @@ To create a client or server:
 `var client = new SimplSocketClient(...)`
 
 `var server = new SimplSocketServer(...)`
+
+Credits
+
+This work is forked from simplSokets, 
+A spinoff library of Dache that provides highly efficient, scalable, simple socket communication.
+**WEB:**   http://www.dache.io
+
+It has been significantly refactored and extended, but still a lot (the majority?) of the code is based on this.
