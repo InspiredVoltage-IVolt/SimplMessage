@@ -1,15 +1,12 @@
-SIMPLSOCKETS & SIMPLMESSAGE
+SimplMessage & SimplSockets
 ===========
 
 
 A messaging library ofthat provides highly efficient, scalable, simple socket communication together with a higher level library that facilitates sending and receiving of arbitrary objects.
 
 
-INSTALLATION INSTRUCTIONS
-============================================
-
-
-Just include the DLL in your project ([NuGet](http://www.nuget.org/packages/SimplSockets)) and then create a SimplSocket!
+Usage
+===========
 
 To create a client or server:
 
@@ -18,6 +15,7 @@ To create a client or server:
 `var server = new SimplSocketServer(...)`
 
 Credits
+===========
 
 This work is forked from simplSokets, 
 A spinoff library of Dache that provides highly efficient, scalable, simple socket communication.
