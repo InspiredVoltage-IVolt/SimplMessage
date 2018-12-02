@@ -9,7 +9,7 @@ SimplMessage is build on top of SimplSocket and facilitates sending and receivin
 Quickstart
 ===========
 
-Let's start with a basic example of sending an object from a client to the server
+Let's start with a basic example of sending an object from a client to the server, before diving into all the details
 
 ```csharp
 using System;
@@ -44,7 +44,7 @@ namespace SimplSocketsClient
 
             // You could also implement this as a lambda function:
 
-            // Start listening for client connections on loopback end poiny
+            // Start listening for client connections on loopback end point
             server.Listen(new IPEndPoint(IPAddress.Loopback, 5000));
         }
 
@@ -53,7 +53,7 @@ namespace SimplSocketsClient
             // Create the client
             var client = new SimplMessageClient();
 
-            // Make the client connect automatically
+            // Automatically discover the server and connect
             client.AutoConnect();
 
             // Wait until the connection is actually made
@@ -62,8 +62,10 @@ namespace SimplSocketsClient
             // Create an object to send
             var objectToSend  = new ClassA() { VarInt = 2, VarDouble = 2.5 };
 
-            // Send it
-            client.Send(objectToSend);            
+            // Send the object
+            client.Send(objectToSend);
+            
+            // Done!
         }
 
         // Function is called when an object of type ClassA is received 
@@ -80,6 +82,7 @@ namespace SimplSocketsClient
 }
 ```
 
+That's it! In the next steps we will go through more options and expand this example. Before we do that, however, we will first explore the functionality of the lower-level SimplSockets library. If you want, you can skip this part and go directly to the SimplMessage examples.
 
 Credits
 ===========
