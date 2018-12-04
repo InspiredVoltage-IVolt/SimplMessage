@@ -4,8 +4,10 @@
     {
         static void Main(string[] args)
         {
-            var client = new Client();
-            client.Start();
+            //var socketClient = new SocketClient();
+            //socketClient.Start();
+            var messageClient = new MessageClient();
+            messageClient.Start();
         }
     }
 }

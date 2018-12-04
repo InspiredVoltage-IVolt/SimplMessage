@@ -49,15 +49,10 @@ namespace SimplSockets
             {
                 // Dispose if applicable
                 if (item is IDisposable disposable) disposable.Dispose();
-                //var disposable = item as IDisposable;
-                //if (disposable != null) disposable.Dispose();
                 return;
             }
 
-            if (_resetItemMethod != null)
-            {
-                _resetItemMethod(item);
-            }
+            _resetItemMethod?.Invoke(item);
 
             lock (_queue)
             {

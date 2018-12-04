@@ -15,7 +15,7 @@ namespace SimplSockets
         /// <summary>
         /// The received message.
         /// </summary>
-        public ReceivedMessage ReceivedMessage { get; internal set; }
+        public PooledMessage ReceivedMessage { get; internal set; }
     }
 }
 

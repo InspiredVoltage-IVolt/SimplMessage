@@ -1,19 +1,30 @@
 ﻿using System;
-using System.Buffers;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+
+// Todo:
+// Add disable/enable pooled response
 
 namespace SimplSockets
 {
     /// <summary>
     /// Wraps sockets and provides intuitive, extremely efficient, scalable methods for client-server communication.
     /// </summary>
-    public class SimplSocketClient : ISimplSocketClient
+    public class SimplSocketClient : IDisposable
     {
+        private enum ConnectionModes
+        {
+            Manual,
+            fixedEndPoint,
+            Discovery
+        }
 
+        // Mode in which connections are set up
+        private ConnectionModes      _connectionMode        = ConnectionModes.Manual;
         // The function that creates a new socket
         private readonly Func<Socket> _socketFunc           = null;
         // The currently used socket
@@ -39,8 +50,12 @@ namespace SimplSockets
         private readonly ManualResetEventSlim                _sendBufferReset    = new ManualResetEventSlim(false);
 
         // Whether or not a connection currently exists
-        private volatile bool _isConnected       = false;
-        private readonly object _isConnectedLock = new object();
+        private volatile bool _isConnected                                       = false;
+        private readonly object _isConnectedLock                                 = new object();
+
+        private Probe _probe                                                     = null;
+        private readonly object _beaconsLock                                     = new Object();
+        private IEnumerable<BeaconLocation> _beacons                             = null;
 
         // The client multiplexer
         private readonly Dictionary<int, MultiplexerData> _clientMultiplexer = null;
@@ -51,19 +66,34 @@ namespace SimplSockets
         private readonly Pool<SocketAsyncEventArgs> _socketAsyncEventArgsSendPool      = null;
         private readonly Pool<SocketAsyncEventArgs> _socketAsyncEventArgsReceivePool   = null;
         private readonly Pool<SocketAsyncEventArgs> _socketAsyncEventArgsKeepAlivePool = null;
-        private readonly Pool<ReceivedMessage>      _receivedMessagePool               = null;
         private readonly Pool<MessageReceivedArgs>  _messageReceivedArgsPool           = null;
         private readonly Pool<SocketErrorArgs>      _socketErrorArgsPool               = null;
 
         // The date time of the last response
         private DateTime _lastResponse = DateTime.UtcNow;
+        
+
 
         // A completely blind guess at the number of expected threads on the multiplexer. 100 sounds good, right? Right.
         private const int PredictedThreadCount = 100;
 
+        /// <summary>
+        /// An event that is fired when the client successfully connects to the server.
+        /// </summary>
+        public event EventHandler<ServerEndpointArgs> Connected;
 
         /// <summary>
-        /// Whether or not to send keep-alive packets and detect if alive
+        /// An event that is fired when the client successfully connects to the server.
+        /// </summary>
+        public event EventHandler<ServerEndpointArgs> ConnectionAttempt;
+
+        /// <summary>
+        /// An event that is fired when the client is disconnected from the server. 
+        /// </summary>
+        public event EventHandler Disconnected;
+
+        /// <summary>
+        /// Whether or not to send keep-alive packets and detect if alive.
         /// </summary>
         public bool KeepAlive { get; set; }
 
@@ -98,12 +128,12 @@ namespace SimplSockets
         /// The constructor.
         /// </summary>
         /// <param name="socketFunc">The function that creates a new socket. Use this to specify your socket constructor and initialize settings.</param>
-        /// <param name="sendKeepAlive">Whether or not to send keep-alive packets and detect if alive</param>
+        /// <param name="keepAlive">Whether or not to send keep-alive packets and detect if alive</param>
         /// <param name="messageBufferSize">The message buffer size to use for send/receive.</param>
         /// <param name="communicationTimeout">The communication timeout, in milliseconds.</param>
         /// <param name="maxMessageSize">The maximum message size.</param>
         /// <param name="useNagleAlgorithm">Whether or not to use the Nagle algorithm.</param>
-        public SimplSocketClient(Func<Socket> socketFunc, bool sendKeepAlive = true, int messageBufferSize = 65536, int communicationTimeout = 10000, int maxMessageSize = 10 * 1024 * 1024, bool useNagleAlgorithm = false)
+        public SimplSocketClient(Func<Socket> socketFunc, bool keepAlive = true, int messageBufferSize = 65536, int communicationTimeout = 10000, int maxMessageSize = 10 * 1024 * 1024, bool useNagleAlgorithm = false)
         {
             // Sanitize
             if (socketFunc == null)
@@ -111,7 +141,7 @@ namespace SimplSockets
                 throw new ArgumentNullException(nameof(socketFunc));
             }
 
-            KeepAlive = sendKeepAlive;
+            KeepAlive = keepAlive;
 
             if (messageBufferSize < 512)
             {
@@ -136,7 +166,7 @@ namespace SimplSockets
             _receiveBufferQueue   = new BlockingQueue<SocketAsyncEventArgs>();
 
             // Initialize the client multiplexer
-            _clientMultiplexer = new Dictionary<int, MultiplexerData>(PredictedThreadCount);
+            _clientMultiplexer    = new Dictionary<int, MultiplexerData>(PredictedThreadCount);
 
             // Create the pools
             _multiplexerDataPool = new Pool<MultiplexerData>(PredictedThreadCount, () => new MultiplexerData { ManualResetEventSlim = new ManualResetEventSlim(false) }, multiplexerData => 
@@ -164,16 +194,120 @@ namespace SimplSockets
                 poolItem.Completed += OperationCallback;
                 return poolItem;
             });
-            _receivedMessagePool = new Pool<ReceivedMessage>(PredictedThreadCount, () => new ReceivedMessage(), receivedMessage =>
-            {
-                receivedMessage.Message = null;
-                receivedMessage.Socket  = null;
-            });
             _messageReceivedArgsPool = new Pool<MessageReceivedArgs>(PredictedThreadCount, () => new MessageReceivedArgs(), messageReceivedArgs => { messageReceivedArgs.ReceivedMessage = null; });
             _socketErrorArgsPool     = new Pool<SocketErrorArgs>    (PredictedThreadCount, () => new SocketErrorArgs()    , socketErrorArgs     => { socketErrorArgs.Exception           = null; });
         }
 
-        
+        /// <summary>
+        /// Automatically reconnect if connection gets broken
+        /// </summary>
+        /// <param name="endPoint">The endpoint to connect to.</param>
+        /// <returns></returns>
+        public void AutoConnect(IPEndPoint endPoint)
+        {
+            if (_connectionMode != ConnectionModes.Manual) return;
+            _connectionMode = ConnectionModes.fixedEndPoint;
+            Task.Run(() => KeepConnectedAsync(endPoint));
+        }
+
+        /// <summary>
+        /// Discover sever and automatically reconnect if connection gets broken
+        /// </summary>
+        /// <param name="serverName">The endpoint to connect to.</param>
+        /// <returns></returns>
+        public void AutoConnect(string serverName= "SimplSocketServer")
+        {
+            if (_connectionMode != ConnectionModes.Manual) return;
+            _connectionMode = ConnectionModes.Discovery;
+            _probe = new Probe(serverName);
+            _probe.BeaconsUpdated += beacons =>  {
+                lock (_beaconsLock)
+                {
+                    _beacons = beacons;
+                }
+            };
+
+            _probe.Start();
+
+            Task.Run(() => KeepConnectedAsync(serverName));
+        }
+
+        private async Task KeepConnectedAsync(IPEndPoint endPoint)
+        {
+            while (true)
+            {
+                if (!_isConnected)
+                {
+                    ConnectionAttempt?.Invoke(this, new ServerEndpointArgs(endPoint));
+                    SafeConnect(endPoint);
+                    await Task.Delay(1000);
+                }
+            }
+        }
+
+        public async Task WaitForConnectionAsync()
+        {
+            while (!_isConnected)
+            {
+                await Task.Delay(500);
+            }
+            return;
+        }
+
+#if (!WINDOWS_UWP)
+        public void WaitForConnection()
+        {
+            while (!_isConnected)
+            {
+                Thread.Sleep(500);
+            }
+            return;
+        }
+#endif
+
+
+        private async Task KeepConnectedAsync(string serverName)
+        {
+            var ipaddresses = Dns.GetHostAddresses(Dns.GetHostName()).ToList();
+
+            while (true)
+            {
+                // Check if not connected
+                if (!_isConnected)
+                {
+                    lock (_beaconsLock)
+                    {
+                        // 
+                        if (_beacons != null)
+                        {
+                            foreach (var beacon in _beacons)
+                            {
+                                ConnectionAttempt?.Invoke(this, new ServerEndpointArgs(beacon.Address));
+                                if (SafeConnect(beacon.Address)) break;
+                                // Check if IP adress received is a local adress
+                                if (ipaddresses.Contains(beacon.Address.Address))
+                                {
+                                    var loopBackEndPoint = new IPEndPoint(IPAddress.Loopback, beacon.Address.Port);
+                                    ConnectionAttempt?.Invoke(this, new ServerEndpointArgs(loopBackEndPoint));
+                                    if (SafeConnect(loopBackEndPoint)) break;
+                                }
+                            }
+                        }
+                    }
+                }
+                await Task.Delay(1000);
+            }
+        }
+
+        /// <summary>
+        /// Connects to an endpoint. Once this is called, you must call Close before calling Connect again. Will never issue an Exception
+        /// </summary>
+        /// <param name="endPoint">The endpoint.</param>
+        /// <returns>true if connection is successful, false otherwise.</returns>
+        public bool SafeConnect(EndPoint endPoint)
+        {
+            try { return Connect(endPoint); } catch (Exception) { return false; }
+        }
 
         /// <summary>
         /// Connects to an endpoint. Once this is called, you must call Close before calling Connect again.
@@ -229,6 +363,7 @@ namespace SimplSockets
                 Task.Run(() => ProcessReceivedMessage(_socket));
 
                 _isConnected = true;
+                Connected?.Invoke(this,new ServerEndpointArgs(_socket.RemoteEndPoint as IPEndPoint));
             }
 
             return true;
@@ -272,9 +407,8 @@ namespace SimplSockets
             // Get the current thread ID
             var threadId = GetThreadId();
 
-
-            var messageWithControlBytes = ProtocolHelper.AppendControlBytesToMessage(message, threadId);
-            var socketAsyncEventArgs    = _socketAsyncEventArgsSendPool.Pop();
+            var messageWithControlBytes    = ProtocolHelper.AppendControlBytesToMessage(message, threadId);
+            var socketAsyncEventArgs       = _socketAsyncEventArgsSendPool.Pop();
             socketAsyncEventArgs.SetBuffer(messageWithControlBytes.Content, 0, messageWithControlBytes.Length);
             socketAsyncEventArgs.UserToken = messageWithControlBytes;
 
@@ -298,7 +432,7 @@ namespace SimplSockets
         /// </summary>
         /// <param name="message">The message to send.</param>
         /// <returns>The response message.</returns>
-        public byte[] SendReceive(byte[] message)
+        public PooledMessage SendReceive(byte[] message)
         {      
             return SendReceive(new Message(message));
         }
@@ -309,7 +443,7 @@ namespace SimplSockets
         /// </summary>
         /// <param name="message">The message to send.</param>
         /// <returns>The response message.</returns>
-        public byte[] SendReceive(IMessage message)
+        public PooledMessage SendReceive(IMessage message)
         {
             // Sanitize
             if (message?.Content == null)
@@ -320,14 +454,12 @@ namespace SimplSockets
             if (!_isConnected) return null;
 
             // Get the current thread ID
-            int threadId = GetThreadId();
+            int threadId                   = GetThreadId();
 
             // Enroll in the multiplexer
-            var multiplexerData = EnrollMultiplexer(threadId);
-
-            var messageWithControlBytes = ProtocolHelper.AppendControlBytesToMessage(message, threadId);
-
-            var socketAsyncEventArgs = _socketAsyncEventArgsSendPool.Pop();
+            var multiplexerData            = EnrollMultiplexer(threadId);
+            var messageWithControlBytes    = ProtocolHelper.AppendControlBytesToMessage(message, threadId);
+            var socketAsyncEventArgs       = _socketAsyncEventArgsSendPool.Pop();
             socketAsyncEventArgs.SetBuffer(messageWithControlBytes.Content, 0, messageWithControlBytes.Length);
             socketAsyncEventArgs.UserToken = messageWithControlBytes;
 
@@ -342,6 +474,9 @@ namespace SimplSockets
                 // Un-enroll from the multiplexer
                 UnenrollMultiplexer(threadId);
 
+                // tell message that it can return to the pool
+                messageWithControlBytes?.Return();
+
                 // No signal
                 return null;
             }
@@ -352,9 +487,13 @@ namespace SimplSockets
             // Un-enroll from the multiplexer
             UnenrollMultiplexer(threadId);
 
+            // tell message that it can return to the pool
+            messageWithControlBytes?.Return();
+
             return result;
         }
 
+        // Todo: Add zero copy version, using segment
 
         /// <summary>
         /// An event that is fired whenever a message is received. Hook into this to process messages and potentially call Reply to send a response.
@@ -381,9 +520,7 @@ namespace SimplSockets
 
             while (_isConnected && KeepAlive)
             {
-                //Thread.Sleep(1000);
                 await Task.Delay(1000);
-
 
                 // Do the keep-alive
                 var socketAsyncEventArgs = _socketAsyncEventArgsKeepAlivePool.Pop();
@@ -419,6 +556,7 @@ namespace SimplSockets
             // Check for error
             if (socketAsyncEventArgs.SocketError != SocketError.Success)
             {
+                (socketAsyncEventArgs.UserToken as PooledMessage)?.Return();
                 HandleCommunicationError(socket, new Exception("Send failed, error = " + socketAsyncEventArgs.SocketError));
             }
 
@@ -426,16 +564,12 @@ namespace SimplSockets
 
             if (socketAsyncEventArgs.Buffer.Length == ProtocolHelper.ControlBytesPlaceholder.Length)
             {
+                // Notify that data has been send. This could possibly return the memory to buffer
+                (socketAsyncEventArgs.UserToken as PooledMessage)?.Return();
                 _socketAsyncEventArgsKeepAlivePool.Push(socketAsyncEventArgs);
                 return;
             }
-
-            
-            //if (!((socketAsyncEventArgs.UserToken as PooledMessage)?.IsRented()??false))
-            //{
-            //    throw new Exception("Should not happen!");
-            //}
-
+           
             // Notify that data has been send. This could possibly return the memory to buffer
             (socketAsyncEventArgs.UserToken as PooledMessage)?.Sent();
             // Clear the buffer reference
@@ -507,7 +641,7 @@ namespace SimplSockets
 
             int controlBytesOffset = 0;
             byte[] protocolBuffer  = new byte[ProtocolHelper.ControlBytesPlaceholder.Length];
-            byte[] resultBuffer    = null;
+            PooledMessage resultBuffer = null;
 
             // Loop until socket is done
             while (_isConnected)
@@ -569,14 +703,15 @@ namespace SimplSockets
                         // Initialize buffer if needed
                         if (resultBuffer == null)
                         {
-                            resultBuffer = new byte[bytesToRead];
+                            //resultBuffer = new byte[bytesToRead]
+                            resultBuffer = PooledMessage.Rent(bytesToRead);
                         }
 
                         var bytesAvailable = bytesRead - currentOffset;
                         var bytesToCopy    = Math.Min(bytesToRead, bytesAvailable);
 
                         // Copy bytes to buffer
-                        Buffer.BlockCopy(buffer, currentOffset, resultBuffer, resultBuffer.Length - bytesToRead, bytesToCopy);
+                        Buffer.BlockCopy(buffer, currentOffset, resultBuffer.Content, resultBuffer.Length - bytesToRead, bytesToCopy);
 
                         currentOffset += bytesToCopy;
                         bytesToRead   -= bytesToCopy;
@@ -605,22 +740,21 @@ namespace SimplSockets
             }
         }
 
-        private void CompleteMessage(Socket handler, int threadId, byte[] message)
+        private void CompleteMessage(Socket handler, int threadId, PooledMessage receivedMessage)
         {
             // Try and signal multiplexer
             var multiplexerData = GetMultiplexerData(threadId);
             if (multiplexerData != null)
             {
-                multiplexerData.Message = message;
+                multiplexerData.Message = receivedMessage;
                 SignalMultiplexer(threadId);
                 return;
             }
 
             // No multiplexer
-            var receivedMessage      = _receivedMessagePool.Pop();
             receivedMessage.Socket   = handler;
             receivedMessage.ThreadId = threadId;
-            receivedMessage.Message  = message;
+  
 
             // Fire the event if needed 
             var messageReceived = MessageReceived;
@@ -634,11 +768,13 @@ namespace SimplSockets
                 // Back in the pool
                 _messageReceivedArgsPool.Push(messageReceivedArgs);
             }
-
-            // Place received message back in pool
-            _receivedMessagePool.Push(receivedMessage);
+            else
+            {
+                // Return the message to the pool ourselves,
+                // since there is nobody listening to the event to return it
+                receivedMessage.Return();
+            }
         }
-
         /// <summary>
         /// Handles an error in socket communication.
         /// </summary>
@@ -649,6 +785,7 @@ namespace SimplSockets
             if (CloseSocket(ref socket)) return;
 
             // No longer connected
+            var wasConnected = _isConnected; 
             _isConnected = false;
 
             // Clear receive queue for this client
@@ -663,6 +800,9 @@ namespace SimplSockets
                 error(this, socketErrorArgs);
                 _socketErrorArgsPool.Push(socketErrorArgs);
             }
+
+            if (wasConnected) Disconnected?.Invoke(this, null);
+
         }
 
         /// <summary>
@@ -685,18 +825,24 @@ namespace SimplSockets
                 {
                     socket.Shutdown(SocketShutdown.Both);
                 }
-                catch (SocketException)           { } // Socket was not able to be shutdown, likely because it was never opened
+                catch (SocketException)          { } // Socket was not able to be shutdown, likely because it was never opened
                 catch (ObjectDisposedException)  { return true; }  // Socket was already closed/disposed, so return out to prevent raising the Error event multiple times. This is most likely to happen when an error occurs during heavily multithreaded use
 
 
                 // Close / dispose the socket
 #if (!WINDOWS_UWP)
-                socket?.Disconnect(false);
-                socket?.Close();
+                try
+                {
+                    socket?.Disconnect(false);
+                    socket?.Close();
+                } catch(Exception){};
 #endif
-
-                socket?.Dispose();
-                socket=null;
+                try
+                {
+                    socket?.Dispose();
+                    socket = null;
+                } catch (Exception) {};
+                               
             }
 
             return false;
@@ -805,15 +951,21 @@ namespace SimplSockets
             }
             catch (SocketException ex)
             {
+                (socketAsyncEventArgs.UserToken as PooledMessage)?.Return();
                 HandleCommunicationError(socket, ex);
                 return false;
             }
             catch (ObjectDisposedException)
             {
+                (socketAsyncEventArgs.UserToken as PooledMessage)?.Return();
                 // If disposed, handle communication error was already done and we're just catching up on other threads. suppress it.
                 return false;
             }
-
+            catch (Exception)
+            {
+                (socketAsyncEventArgs.UserToken as PooledMessage)?.Return();
+                return false;
+            }
             return true;
         }
     }

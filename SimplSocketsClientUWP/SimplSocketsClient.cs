@@ -2,18 +2,28 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Threading.Tasks;
+using Windows.System.Threading;
 using SimplSockets;
 
-namespace SimplSocketsClient
+namespace SimplSocketsClientUWP
 {
-    public class Client
+    public class SocketClient
     {
-        public void Start()
+        private readonly MainPage _mainPage;
+
+        public SocketClient(MainPage mainPage)
         {
-            RunBenchmarks();
+            _mainPage = mainPage;
+
         }
 
-        void RunBenchmarks()
+        public void Start()
+        {
+            RunSocketBenchmarks();
+        }
+
+        void RunSocketBenchmarks()
         {
             // Fill randomData array
 
@@ -22,23 +32,51 @@ namespace SimplSocketsClient
             {
                 // subscribe to broadcasts
                 // client.MessageReceived += async (s, e) => await WriteLineAsync('*', e.ReceivedMessage.PooledMessage);
+                client.MessageReceived += async (s, e) => { e.ReceivedMessage.Dispose(); };
+
+
 
                 SendAndReceiveCheck(client);
+                WaitUntilRentedMessagesReturn();
+
                 SendFromPoolAndReceiveCheck(client);
+                WaitUntilRentedMessagesReturn();
 
                 SendBenchmark(client);
-                SendFromPoolBenchmark(client);
-                SendFromPoolAndReceiveBenchmark(client);
-                SendAndReceiveBenchmark(client);
+                WaitUntilRentedMessagesReturn();
 
-                SendBenchmark(client);
                 SendFromPoolBenchmark(client);
+                WaitUntilRentedMessagesReturn();
                 SendFromPoolAndReceiveBenchmark(client);
+                WaitUntilRentedMessagesReturn();
                 SendAndReceiveBenchmark(client);
-                Console.ReadLine();
+                WaitUntilRentedMessagesReturn();
+                SendBenchmark(client);
+                WaitUntilRentedMessagesReturn();
+                SendFromPoolBenchmark(client);
+                WaitUntilRentedMessagesReturn();
+                SendFromPoolAndReceiveBenchmark(client);
+                WaitUntilRentedMessagesReturn();
+                SendAndReceiveBenchmark(client);
+                WaitUntilRentedMessagesReturn();
             }
         }
 
+        private async void WaitUntilRentedMessagesReturn()
+        {
+            var prevNo = 0;
+            var no = PooledMessage.GetNoRentedMessages();
+            while (no > 0)
+            {
+                no = PooledMessage.GetNoRentedMessages();
+                if (no == prevNo) break;
+                prevNo = no;
+                Log($"messages rented out: {no}");
+                await Task.Delay(5000);
+            }
+
+            Log(PooledMessage.GetNoRentedMessages() == 0 ? $"All messages returned to pool" : $"messages remains rented out: {no}");
+        }
 
         private void SendBenchmark(SimplSocketClient client)
         {
@@ -59,10 +97,7 @@ namespace SimplSocketsClient
                 {
                     randomData = new byte[bufferSizes[test] * 512];
 
-                    if (!client.IsConnected())
-                    {
-                        client.Connect(new IPEndPoint(IPAddress.Loopback, 5000));
-                    }
+                    if (!TryConnect(client)) { Log("Could not connect"); return; }
 
                     client.Send(randomData);
                 }
@@ -80,99 +115,101 @@ namespace SimplSocketsClient
             Log("*** SendFromPoolBenchmark ***");
             var rnd = new Random();
             var bufferSizes = new[] { 1, 10, 100, 1000 };
-            var length = 0;            
+            var length = 0;
             for (var test = 0; test < 4; test++)
             {
-                var randomData = PooledMessage.Rent(bufferSizes[test] * 512);
-                length += randomData.Length;
-                rnd.NextBytes(randomData.Content);
+                length += bufferSizes[test] * 512;
 
                 var countPerIteration = 100;
                 var watch = Stopwatch.StartNew();
                 for (var i = 0; i < countPerIteration; i++)
                 {
-                    randomData = PooledMessage.Rent(bufferSizes[test] * 512);
-                    if (!client.IsConnected())
-                    {
-                        client.Connect(new IPEndPoint(IPAddress.Loopback, 5000));
-                    }
+                    var randomData = PooledMessage.Rent(bufferSizes[test] * 512);
+                    if (!TryConnect(client)) { Log("Could not connect"); return; }
 
                     client.Send(randomData);
-                    randomData.ReturnAfterSend();
+                    randomData.Return();
                 }
 
                 watch.Stop();
-                
+
 
                 var speed = (countPerIteration * length) / (watch.ElapsedMilliseconds / 1000.0);
                 var scaledSpeed = ScaledSpeed(speed);
                 Log($"{countPerIteration}x{length}: {watch.ElapsedMilliseconds}ms = {scaledSpeed} ");
-                
+
             }
         }
 
         private void SendAndReceiveCheck(SimplSocketClient client)
         {
-            Console.Out.WriteLine("*** SendAndReceiveCheck ***");
+            Log("*** SendAndReceiveCheck ***");
             var rnd = new Random();
 
             byte[] randomData = new byte[1000 * 512];
             rnd.NextBytes(randomData);
 
-            if (!client.IsConnected())
-            {
-                client.Connect(new IPEndPoint(IPAddress.Loopback, 5000));
-            }
+            if (!TryConnect(client)) { Log("Could not connect"); return; }
 
             var outputData = client.SendReceive(randomData);
+            if (outputData == null) { Log("No answer received"); return; }
+
             var same = true;
             for (int i = 0; i < outputData.Length; i++)
             {
-                if (outputData[i] != randomData[i])
+                if (outputData.Content[i] != randomData[i])
                 {
                     same = false;
                     break;
                 }
             }
-
-            Log(same?"data is same":"Data is not the same");           
+            // We need to return the output data to pool
+            outputData.Return();
+            Log(same ? "data is same" : "Data is not the same");
         }
 
         private void SendFromPoolAndReceiveCheck(SimplSocketClient client)
         {
-            Console.Out.WriteLine("*** SendFromPoolAndReceiveCheck ***");
+            Log("*** SendFromPoolAndReceiveCheck ***");
             var rnd = new Random();
 
             var randomData = PooledMessage.Rent(1000 * 512);
             rnd.NextBytes(randomData.Content);
 
-            if (!client.IsConnected())
-            {
-                client.Connect(new IPEndPoint(IPAddress.Loopback, 5000));
-            }
+            if (!TryConnect(client)) { Log("Could not connect"); return; }
 
             var outputData = client.SendReceive(randomData);
             var same = true;
-            for (int i = 0; i < outputData.Length; i++)
-            {
-                if (outputData[i] != randomData.Content[i])
+            if (outputData != null)
+            {                
+                for (int i = 0; i < outputData.Length; i++)
                 {
-                    same = false;
-                    break;
+                    if (outputData.Content[i] != randomData.Content[i])
+                    {
+                        same = false;
+                        break;
+                    }
                 }
+                outputData.Return();
+                Log(same ? "data is same" : "Data is not the same");
+            }
+            else
+            {
+                Log("No response");
             }
             randomData.Return();
-            Log(same ? "data is same" : "Data is not the same");
+
+            
         }
 
         private void SendAndReceiveBenchmark(SimplSocketClient client)
         {
-            Console.Out.WriteLine("*** SendAndReceiveBenchmark ***");
+            Log("*** SendAndReceiveBenchmark ***");
             var rnd = new Random();
             var bufferSizes = new[] { 1, 10, 100, 1000 };
             var length = 0;
             for (var test = 0; test < 4; test++)
-            {                
+            {
                 byte[] randomData = new byte[bufferSizes[test] * 512];
                 length += randomData.Length;
                 rnd.NextBytes(randomData);
@@ -181,12 +218,9 @@ namespace SimplSocketsClient
                 var watch = Stopwatch.StartNew();
                 for (var i = 0; i < countPerIteration; i++)
                 {
-                    if (!client.IsConnected())
-                    {
-                        client.Connect(new IPEndPoint(IPAddress.Loopback, 5000));
-                    }
-
+                    if (!TryConnect(client)) { Log("Could not connect"); return; }
                     var response = client.SendReceive(randomData);
+                    if (response == null) { Log("No response "); } else { response.Return(); }
                 }
 
                 watch.Stop();
@@ -196,6 +230,8 @@ namespace SimplSocketsClient
             }
         }
 
+
+
         private void SendFromPoolAndReceiveBenchmark(SimplSocketClient client)
         {
             Log("*** SendFromPoolAndReceiveBenchmark ***");
@@ -203,7 +239,7 @@ namespace SimplSocketsClient
             var bufferSizes = new[] { 1, 10, 100, 1000 };
             var length = 0;
             for (var test = 0; test < 4; test++)
-            {                
+            {
                 var randomData = PooledMessage.Rent(bufferSizes[test] * 512);
                 length += randomData.Length;
                 rnd.NextBytes(randomData.Content);
@@ -212,12 +248,10 @@ namespace SimplSocketsClient
                 var watch = Stopwatch.StartNew();
                 for (var i = 0; i < countPerIteration; i++)
                 {
-                    if (!client.IsConnected())
-                    {
-                        client.Connect(new IPEndPoint(IPAddress.Loopback, 5000));
-                    }
+                    if (!TryConnect(client)) { Log("Could not connect"); return; }
 
                     var response = client.SendReceive(randomData);
+                    if (response == null) { Log("No response "); } else { response.Return(); }
                 }
 
                 watch.Stop();
@@ -228,7 +262,13 @@ namespace SimplSocketsClient
             }
         }
 
-        private string ScaledSpeed(double bps)
+        private static bool TryConnect(SimplSocketClient client)
+        {
+            if (!client.IsConnected()) { client.SafeConnect(new IPEndPoint(IPAddress.Loopback, 5000)); }
+            return client.IsConnected();
+        }
+
+        private static string ScaledSpeed(double bps)
         {
             const int KB = 1024;
             const int MB = 1024 * 1024;
@@ -241,9 +281,7 @@ namespace SimplSocketsClient
 
         public void Log(string output)
         {
-            Console.Out.WriteLine(output);
+            var task = ThreadPool.RunAsync(operation => UIDispatcher.Execute(() => _mainPage.Log(output)));
         }
-
-
     }
 }

@@ -12,7 +12,7 @@ namespace SimplSockets
         /// Begin listening for incoming connections. Once this is called, you must call Close before calling Listen again.
         /// </summary>
         /// <param name="localEndpoint">The local endpoint to listen on.</param>
-        void Listen(EndPoint localEndpoint);
+        void Listen(IPEndPoint localEndpoint, string name, string description, bool discoverable);
 
         /// <summary>
         /// Broadcasts a message to all connected clients without waiting for a response (one-way communication).
@@ -25,7 +25,8 @@ namespace SimplSockets
         /// </summary>
         /// <param name="message">The reply message to send.</param>
         /// <param name="receivedMessage">The received message which is being replied to.</param>
-        void Reply(byte[] message, ReceivedMessage receivedMessage);
+        //void Reply(byte[] message, ReceivedMessage receivedMessage);
+        void Reply(byte[] message, PooledMessage receivedMessage);
 
         /// <summary>
         /// Closes the connection. Once this is called, you can call Listen again.
@@ -40,7 +41,7 @@ namespace SimplSockets
         /// <summary>
         /// An event that is fired when a client successfully connects to the server. Hook into this to do something when a connection succeeds.
         /// </summary>
-        event EventHandler ClientConnected;
+        event EventHandler<ClientConnectedArgs> ClientConnected;
 
         /// <summary>
         /// An event that is fired whenever a message is received. Hook into this to process messages and potentially call Reply to send a response.

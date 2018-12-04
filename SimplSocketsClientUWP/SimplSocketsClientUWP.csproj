@@ -95,7 +95,8 @@
     <Compile Include="App.xaml.cs">
       <DependentUpon>App.xaml</DependentUpon>
     </Compile>
-    <Compile Include="Client.cs" />
+    <Compile Include="SimplMessageClient.cs" />
+    <Compile Include="SimplSocketsClient.cs" />
     <Compile Include="UIDispatcher.cs" />
     <Compile Include="MainPage.xaml.cs">
       <DependentUpon>MainPage.xaml</DependentUpon>
@@ -134,6 +135,10 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\SimplMessageUWP\SimplMessageUWP.csproj">
+      <Project>{3256b255-f2a8-42a2-81c8-b2419d431a85}</Project>
+      <Name>SimplMessageUWP</Name>
+    </ProjectReference>
     <ProjectReference Include="..\SimplSocketsUWP\SimplSocketsUWP.csproj">
       <Project>{1ec3fdbc-63aa-451a-8fc1-ae7a0b68d565}</Project>
       <Name>SimplSocketsUWP</Name>

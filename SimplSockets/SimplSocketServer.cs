@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -7,6 +8,8 @@ using System.Threading.Tasks;
 
 namespace SimplSockets
 {
+    // - todo test ConnectedClient functionality
+
     /// <summary>
     /// Wraps sockets and provides intuitive, extremely efficient, scalable methods for client-server communication.
     /// </summary>
@@ -31,10 +34,12 @@ namespace SimplSockets
 
         // Whether or not the socket is currently listening
         private volatile bool         _isListening          = false;
+        private Beacon _beacon;
         private readonly object       _isListeningLock      = new object();
 
         // The currently connected clients
-        private readonly List<ConnectedClient> _currentlyConnectedClients     = null;
+        private readonly Dictionary<Socket,ConnectedClient> _currentlyConnectedClients = null;
+
         private readonly ReaderWriterLockSlim  _currentlyConnectedClientsLock = new ReaderWriterLockSlim();
 
         // The currently connected client receive queues
@@ -45,12 +50,16 @@ namespace SimplSockets
         private readonly Pool<SocketAsyncEventArgs> _socketAsyncEventArgsSendPool      = null;
         private readonly Pool<SocketAsyncEventArgs> _socketAsyncEventArgsReceivePool   = null;
         private readonly Pool<SocketAsyncEventArgs> _socketAsyncEventArgsKeepAlivePool = null;
-        private readonly Pool<ReceivedMessage>      _receivedMessagePool               = null;
         private readonly Pool<MessageReceivedArgs>  _messageReceivedArgsPool           = null;
         private readonly Pool<SocketErrorArgs>      _socketErrorArgsPool               = null;
 
         // A completely blind guess at the number of expected connections to this server. 100 sounds good, right? Right.
         private const int PredictedConnectionCount = 100;
+
+        public List<ConnectedClient> ConnectedClients
+        {
+            get { return _currentlyConnectedClients.Values.ToList(); } 
+        }
 
         /// <summary>
         /// Convenience function to creates a new TCP socket with default settings. This socket can be modified and can be used to initialize the constructor with.
@@ -88,10 +97,6 @@ namespace SimplSockets
         public SimplSocketServer(Func<Socket> socketFunc, int messageBufferSize = 65536, int communicationTimeout = 10*10000, int maxMessageSize = 10 * 1024 * 1024, bool useNagleAlgorithm = false)
         {
             // Sanitize
-            if (socketFunc == null)
-            {
-                throw new ArgumentNullException(nameof(socketFunc));
-            }
             if (messageBufferSize < 512)
             {
                 throw new ArgumentException("must be >= 512", nameof(messageBufferSize));
@@ -105,13 +110,13 @@ namespace SimplSockets
                 throw new ArgumentException("must be >= 1024", nameof(maxMessageSize));
             }
 
-            _socketFunc           = socketFunc;
+            _socketFunc           = socketFunc ?? throw new ArgumentNullException(nameof(socketFunc));
             _messageBufferSize    = messageBufferSize;
             _communicationTimeout = communicationTimeout;
             _maxMessageSize       = maxMessageSize;
             _useNagleAlgorithm    = useNagleAlgorithm;
 
-            _currentlyConnectedClients              = new List<ConnectedClient>(PredictedConnectionCount);
+            _currentlyConnectedClients              = new Dictionary<Socket, ConnectedClient>(PredictedConnectionCount);
             _currentlyConnectedClientsReceiveQueues = new Dictionary<Socket, BlockingQueue<SocketAsyncEventArgs>>(PredictedConnectionCount);
 
             // Create the pools
@@ -135,11 +140,11 @@ namespace SimplSockets
                 poolItem.Completed += OperationCallback;
                 return poolItem;
             });
-            _receivedMessagePool = new Pool<ReceivedMessage>(PredictedConnectionCount, () => new ReceivedMessage(), receivedMessage =>
-            {
-                receivedMessage.Message = null;
-                receivedMessage.Socket  = null;
-            });
+            //_receivedMessagePool = new Pool<ReceivedMessage>(PredictedConnectionCount, () => new ReceivedMessage(), receivedMessage =>
+            //{
+            //    receivedMessage.Message = null;
+            //    receivedMessage.Socket  = null;
+            //});
             _messageReceivedArgsPool = new Pool<MessageReceivedArgs>(PredictedConnectionCount, () => new MessageReceivedArgs(), messageReceivedArgs => { messageReceivedArgs.ReceivedMessage = null; });
             _socketErrorArgsPool     = new Pool<SocketErrorArgs>    (PredictedConnectionCount, () => new SocketErrorArgs()    , socketErrorArgs     => { socketErrorArgs.Exception           = null; });
         }
@@ -148,7 +153,7 @@ namespace SimplSockets
         /// Begin listening for incoming connections. Once this is called, you must call Close before calling Listen again.
         /// </summary>
         /// <param name="localEndpoint">The local endpoint to listen on.</param>
-        public void Listen(EndPoint localEndpoint)
+        public void Listen(IPEndPoint localEndpoint, string name= "SimplSocketServer", string description = null, bool discoverable = true)
         {
             // Sanitize
             if (localEndpoint == null)
@@ -188,6 +193,11 @@ namespace SimplSockets
 
             // Spin up the keep-alive
             Task.Factory.StartNew(KeepAlive);
+
+            // Start beacon if discoverable
+            _beacon = new Beacon(name, (ushort)localEndpoint.Port);
+            _beacon.BeaconData = description?? $"name {Dns.GetHostName()} ";
+            _beacon.Start();
         }
 
         /// <summary>
@@ -222,8 +232,9 @@ namespace SimplSockets
             _currentlyConnectedClientsLock.EnterReadLock();
             try
             {
-                foreach (var client in _currentlyConnectedClients)
+                foreach (var lookup in _currentlyConnectedClients)
                 {
+                    var client = lookup.Value;
                     var socketAsyncEventArgs = _socketAsyncEventArgsSendPool.Pop();
                     socketAsyncEventArgs.SetBuffer(messageWithControlBytes.Content, 0, messageWithControlBytes.Length);
                     socketAsyncEventArgs.UserToken = messageWithControlBytes;
@@ -270,7 +281,7 @@ namespace SimplSockets
         /// </summary>
         /// <param name="message">The reply message to send.</param>
         /// <param name="receivedMessage">The received message which is being replied to.</param>
-        public void Reply(byte[] message, ReceivedMessage receivedMessage)
+        public void Reply(byte[] message, PooledMessage receivedMessage)
         {
             Reply(new Message(message), receivedMessage);
         }
@@ -280,30 +291,88 @@ namespace SimplSockets
         /// </summary>
         /// <param name="message">The reply message to send.</param>
         /// <param name="receivedMessage">The received message which is being replied to.</param>
-        public void Reply(IMessage message, ReceivedMessage receivedMessage)
+        public void Reply(IMessage message, PooledMessage receivedMessage)
+        {
+            Send(message, receivedMessage.Socket, receivedMessage.ThreadId);
+        }
+
+        /// <summary>
+        /// Sends a message to a client.
+        /// </summary>
+        /// <param name="message">The reply message to send.</param>
+        /// <param name="receivedMessage">The client which is being sent to.</param>
+        public void Send(IMessage message, ConnectedClient connectedClient)
+        {
+            if (_currentlyConnectedClients.ContainsKey(connectedClient.Socket))
+                Send(message, connectedClient.Socket, GetThreadId());
+        }
+
+        /// <summary>
+        /// Sends a message to a client.
+        /// </summary>
+        /// <param name="message">The message to send.</param>
+        /// <param name="ConnectedClient">The client which is being sent to.</param>
+        public void Send(byte[] message, ConnectedClient connectedClient)
+        {
+            if (_currentlyConnectedClients.ContainsKey(connectedClient.Socket))
+                Send(new Message(message), connectedClient.Socket, GetThreadId());
+        }
+
+        /// <summary>
+        /// Sends a message to a client.
+        /// </summary>
+        /// <param name="message">The reply message to send.</param>
+        /// <param name="socket">The socket which is being send to.</param>
+        public void Send(byte[] message, Socket socket) { Send(new Message(message), socket, GetThreadId()); }
+
+
+        /// <summary>
+        /// Sends a message to a client.
+        /// </summary>
+        /// <param name="message">The reply message to send.</param>
+        /// <param name="socket">The socket which is being replied to.</param>
+        public void Send(IMessage message, Socket socket) { Send(message,socket, GetThreadId());}
+
+        /// <summary>
+        /// Sends a message to a client.
+        /// </summary>
+        /// <param name="message">The reply message to send.</param>
+        /// <param name="socket">The socket which is being replied to.</param>
+        /// <param name="threadId">The thread which is being replied to.</param>
+        public void Send(IMessage message, Socket socket, int threadId)
         {
             // Sanitize
-            if (message == null) 
+            if (message == null)
             {
                 throw new ArgumentNullException(nameof(message));
             }
-            if (receivedMessage.Socket == null)
+            if (socket == null)
             {
                 throw new ArgumentException("contains corrupted data", "receivedMessageState");
             }
 
-            var messageWithControlBytes = ProtocolHelper.AppendControlBytesToMessage(message, receivedMessage.ThreadId);
-            var socketAsyncEventArgs    = _socketAsyncEventArgsSendPool.Pop();
+            var messageWithControlBytes = ProtocolHelper.AppendControlBytesToMessage(message, threadId);
+            var socketAsyncEventArgs = _socketAsyncEventArgsSendPool.Pop();
             socketAsyncEventArgs.SetBuffer(messageWithControlBytes.Content, 0, messageWithControlBytes.Length);
             socketAsyncEventArgs.UserToken = messageWithControlBytes;
 
             // Do the send to the appropriate client
-            TryUnsafeSocketOperation(receivedMessage.Socket, SocketAsyncOperation.Send, socketAsyncEventArgs);
+            TryUnsafeSocketOperation(socket, SocketAsyncOperation.Send, socketAsyncEventArgs);
+        }
+
+        /// <summary>
+        /// Sends a message back to the client.
+        /// </summary>
+        /// <param name="message">The reply message to send.</param>
+        /// <param name="socket">The socket which is being replied to.</param>
+        /// <param name="threadId">The thread which is being replied to.</param>
+        public void Reply(byte[] message, Socket socket, int threadId)
+        {
+            Send(new Message(message), socket, threadId);
         }
 
         private bool CloseSocket(ref Socket socket, bool disposeSocket=true)
-        {
-            //Console.Out.WriteLine($"Closing socket");
+        {            
             lock (_socketLock)
             {
                 if (socket == null) return true;
@@ -324,9 +393,12 @@ namespace SimplSockets
                 }
 
 #if (!WINDOWS_UWP)
-                if (socket.Connected) { socket?.Disconnect(false); }
-
-                socket?.Close();
+                try
+                {
+                    if (socket.Connected) { socket?.Disconnect(false); }
+                    socket?.Close();
+                } catch (Exception) {}
+                
 #endif
                 if (disposeSocket) DisposeSocket(ref socket);
             }
@@ -336,8 +408,12 @@ namespace SimplSockets
 
         private void DisposeSocket(ref Socket socket)
         {
-            socket?.Dispose();
-            socket = null;
+            try
+            {
+                socket?.Dispose();
+                socket = null;
+            } catch (Exception) {}
+
         }
 
         /// <summary>
@@ -348,11 +424,11 @@ namespace SimplSockets
             CloseSocket(ref _socket);
 
             // Dump all clients
-            var clientList = new List<ConnectedClient>();
+            var clientList = new Dictionary<Socket,ConnectedClient>();
             _currentlyConnectedClientsLock.EnterWriteLock();
             try
             {
-                clientList = new List<ConnectedClient>(_currentlyConnectedClients);
+                clientList = new Dictionary<Socket, ConnectedClient>(_currentlyConnectedClients);
             }
             finally
             {
@@ -361,8 +437,9 @@ namespace SimplSockets
 
             foreach (var client in clientList)
             {
-                HandleCommunicationError(client.Socket, new Exception("Host is shutting down"));
+                HandleCommunicationError(client.Value.Socket, new Exception("Host is shutting down"));
             }
+
 
             // No longer connected
             lock (_isListeningLock)
@@ -379,7 +456,12 @@ namespace SimplSockets
         /// <summary>
         /// An event that is fired when a client successfully connects to the server. Hook into this to do something when a connection succeeds.
         /// </summary>
-        public event EventHandler ClientConnected;
+        public event EventHandler<ClientConnectedArgs> ClientConnected;
+
+        /// <summary>
+        /// An event that is fired when a client is not connected to the server anymore. Hook into this to do something when a connection succeeds.
+        /// </summary>
+        public event EventHandler ClientDisconnected;
 
         /// <summary>
         /// An event that is fired whenever a message is received. Hook into this to process messages and potentially call Reply to send a response.
@@ -398,7 +480,6 @@ namespace SimplSockets
         {
             // Close/dispose the socket
             CloseSocket(ref _socket);
-            //_socket.Close();
         }
 
         private async void KeepAlive()
@@ -407,7 +488,6 @@ namespace SimplSockets
 
             while (true)
             {
-                //Thread.Sleep(1000);
                 await Task.Delay(1000);
 
                 if (_currentlyConnectedClients.Count == 0)
@@ -421,8 +501,9 @@ namespace SimplSockets
                 _currentlyConnectedClientsLock.EnterReadLock();
                 try
                 {
-                    foreach (var client in _currentlyConnectedClients)
+                    foreach (var lookup in _currentlyConnectedClients)
                     {
+                        var client = lookup.Value;
                         var socketAsyncEventArgs = _socketAsyncEventArgsKeepAlivePool.Pop();
 
                         // Post send on the socket and confirm that we've heard from the client recently
@@ -516,7 +597,7 @@ namespace SimplSockets
             _currentlyConnectedClientsLock.EnterWriteLock();
             try
             {
-                _currentlyConnectedClients.Add(connectedClient);
+                _currentlyConnectedClients.Add(connectedClient.Socket,connectedClient);
             }
             finally
             {
@@ -524,7 +605,7 @@ namespace SimplSockets
             }
 
             // Fire the event if needed
-            ClientConnected?.Invoke(this, EventArgs.Empty);
+            ClientConnected?.Invoke(this, new ClientConnectedArgs(connectedClient));
 
             // Create receive buffer queue for this client
             _currentlyConnectedClientsReceiveQueuesLock.EnterWriteLock();
@@ -574,6 +655,7 @@ namespace SimplSockets
             // Check for error
             if (socketAsyncEventArgs.SocketError != SocketError.Success)
             {
+                (socketAsyncEventArgs.UserToken as PooledMessage)?.Dispose();
                 HandleCommunicationError(socket, new Exception("Receive failed, error = " + socketAsyncEventArgs.SocketError));
             }
 
@@ -604,6 +686,7 @@ namespace SimplSockets
             else
             {
                 // 0 bytes means disconnect
+                (socketAsyncEventArgs.UserToken as PooledMessage)?.Dispose();
                 HandleCommunicationError(socket, new Exception("Received 0 bytes (graceful disconnect)"));
 
                 _socketAsyncEventArgsReceivePool.Push(socketAsyncEventArgs);
@@ -623,7 +706,7 @@ namespace SimplSockets
             int availableTest      = 0;
             int controlBytesOffset = 0;
             byte[] protocolBuffer  = new byte[ProtocolHelper.ControlBytesPlaceholder.Length];
-            byte[] resultBuffer    = null;
+            PooledMessage resultBuffer    = null;
 
             var handler = connectedClient.Socket;
 
@@ -711,12 +794,12 @@ namespace SimplSockets
                     if (bytesToRead != 0)
                     {
                         // Initialize buffer if needed
-                        if (resultBuffer == null) { resultBuffer = new byte[bytesToRead]; }
+                        if (resultBuffer == null) { resultBuffer = PooledMessage.Rent(bytesToRead); }
 
                         var bytesAvailable = bytesRead - currentOffset;
                         var bytesToCopy    = Math.Min(bytesToRead, bytesAvailable);
                         // Copy bytes to buffer
-                        Buffer.BlockCopy(buffer, currentOffset, resultBuffer, resultBuffer.Length - bytesToRead, bytesToCopy);
+                        Buffer.BlockCopy(buffer, currentOffset, resultBuffer.Content, resultBuffer.Length - bytesToRead, bytesToCopy);
 
                         currentOffset += bytesToCopy;
                         bytesToRead   -= bytesToCopy;
@@ -746,12 +829,11 @@ namespace SimplSockets
             }
         }
 
-        private void CompleteMessage(Socket handler, int threadId, byte[] message)
+        private void CompleteMessage(Socket handler, int threadId, PooledMessage receivedMessage)
         {
-            var receivedMessage      = _receivedMessagePool.Pop();
             receivedMessage.Socket   = handler;
+          //  receivedMessage.ConnectedClient = GetConnectedClient(handler);
             receivedMessage.ThreadId = threadId;
-            receivedMessage.Message  = message;
 
             // Fire the event if needed 
             var messageReceived = MessageReceived;
@@ -765,9 +847,6 @@ namespace SimplSockets
                 // Back in the pool
                 _messageReceivedArgsPool.Push(messageReceivedArgs);
             }
-
-            // Place received message back in pool
-            _receivedMessagePool.Push(receivedMessage);
         }
 
         /// <summary>
@@ -778,13 +857,16 @@ namespace SimplSockets
         private void HandleCommunicationError(Socket socket, Exception ex)
         {
             // Close but do not dispose
-            CloseSocket(ref socket,false); 
+            CloseSocket(ref socket,false);
 
             // Remove receive buffer queue
             _currentlyConnectedClientsReceiveQueuesLock.EnterWriteLock();
             try
             {
-                if (socket!=null) _currentlyConnectedClientsReceiveQueues.Remove(socket);
+                if (socket != null)
+                {                                        
+                    _currentlyConnectedClientsReceiveQueues.Remove(socket);                    
+                }
             }
             finally
             {
@@ -795,15 +877,11 @@ namespace SimplSockets
             _currentlyConnectedClientsLock.EnterWriteLock();
             try
             {
-                for (var i = 0; i < _currentlyConnectedClients.Count; i++)
+                if (_currentlyConnectedClients.ContainsKey(socket))
                 {
-                    var connectedClient = _currentlyConnectedClients[i];
-                    if (connectedClient.Socket == socket)
-                    {
-                        _currentlyConnectedClients.RemoveAt(i);
-                        break;
-                    }
-                }                
+                    _currentlyConnectedClients.Remove(socket);
+                    ClientDisconnected?.Invoke(this, null);
+                }
             }
             finally
             {
@@ -852,6 +930,7 @@ namespace SimplSockets
             {
                 if (operation != SocketAsyncOperation.Accept)
                 {
+                    (socketAsyncEventArgs.UserToken as PooledMessage)?.Dispose();
                     HandleCommunicationError(socket, ex);
                 }
                 return false;
@@ -859,25 +938,11 @@ namespace SimplSockets
             catch (ObjectDisposedException)
             {
                 // If disposed, handle communication error was already done and we're just catching up on other threads. suppress it.
+                (socketAsyncEventArgs.UserToken as PooledMessage)?.Dispose();
                 return false;
             }
 
             return true;
-        }
-
-        private class ConnectedClient
-        {
-            public ConnectedClient(Socket socket)
-            {
-                if (socket == null) throw new ArgumentNullException(nameof(socket));
-
-                Socket       = socket;
-                LastResponse = DateTime.UtcNow;
-            }
-
-            public Socket Socket { get; private set; }
-
-            public DateTime LastResponse { get; set; }
         }
     }
 }

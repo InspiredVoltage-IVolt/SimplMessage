@@ -109,6 +109,9 @@
     <Compile Include="..\SimplSockets\BlockingQueue.cs">
       <Link>BlockingQueue.cs</Link>
     </Compile>
+    <Compile Include="..\SimplSockets\IMessage.cs">
+      <Link>IMessage.cs</Link>
+    </Compile>
     <Compile Include="..\SimplSockets\ISimplSocketClient.cs">
       <Link>ISimplSocketClient.cs</Link>
     </Compile>
@@ -129,9 +132,6 @@
     </Compile>
     <Compile Include="..\SimplSockets\ProtocolHelper.cs">
       <Link>ProtocolHelper.cs</Link>
-    </Compile>
-    <Compile Include="..\SimplSockets\ReceivedMessage.cs">
-      <Link>ReceivedMessage.cs</Link>
     </Compile>
     <Compile Include="..\SimplSockets\SimplSocketClient.cs">
       <Link>SimplSocketClient.cs</Link>

@@ -9,25 +9,8 @@ namespace SimplSockets
         /// </summary>
         public static readonly byte[] ControlBytesPlaceholder = new byte[] { 0, 0, 0, 0, 0, 0, 0, 0 };
 
-        public static PooledMessage AppendControlBytesToMessage(byte[] message, int threadId)
-        {
-            // todo: use Array Pool for larger blocks: https://adamsitnik.com/Array-Pool/
-
-            // Create room for the control bytes
-            var messageWithControlBytes = PooledMessage.Rent(ControlBytesPlaceholder.Length + message.Length);
-            // Tell messageWithControlBytes that it can be returned to the pool after it has been send
-            messageWithControlBytes.ReturnAfterSend();
-            // Copy data to message with control bytes
-            Buffer.BlockCopy(message, 0, messageWithControlBytes.Content, ControlBytesPlaceholder.Length, message.Length);
-            // Set the control bytes on the message
-            SetControlBytes(messageWithControlBytes.Content, message.Length, threadId);
-            return messageWithControlBytes;
-        }
-
         public static PooledMessage AppendControlBytesToMessage(IMessage message, int threadId)
         {
-            // todo: use Array Pool for larger blocks: https://adamsitnik.com/Array-Pool/
-
             // Create room for the control bytes
             var messageWithControlBytes = PooledMessage.Rent(ControlBytesPlaceholder.Length + message.Length);
             // Tell messageWithControlBytes that it can be returned to the pool after it has been send
@@ -36,7 +19,7 @@ namespace SimplSockets
             Buffer.BlockCopy(message.Content, 0, messageWithControlBytes.Content, ControlBytesPlaceholder.Length, message.Length);
             // Set the control bytes on the message
             SetControlBytes(messageWithControlBytes.Content, message.Length, threadId);
-            // Tell message it has been sent. It may decide to return tool pool
+            // Tell message it has been sent. It may decide to return to pool
             message.Sent();
             return messageWithControlBytes;
         }

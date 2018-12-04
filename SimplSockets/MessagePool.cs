@@ -1,14 +1,12 @@
 ﻿using System;
 using System.Buffers;
+using System.Collections.Generic;
 using System.Net.Sockets;
 
 namespace SimplSockets
 {
     public class Message : IMessage
     {
-        internal Socket Socket;
-        internal int ThreadId;
-
         public Message(int length)
         {
             Content = new byte[length];
@@ -27,18 +25,20 @@ namespace SimplSockets
 
     public class PooledMessage : IMessage
     {
-        internal Socket Socket;
-        internal int ThreadId;
 
         private static readonly ArrayPool<byte> ArrayPool = ArrayPool<byte>.Shared;
+        private static int _rentCount     = 0;
+
         private bool _rented          = false;
         private bool _sent            = false;
         private bool _returnAfterSend = false;
-        public byte[] Content { get; set; }
+        public int ThreadId                    { get; set; }
+        public byte[] Content                  { get; set; }
+        public int Length                      { get; set; }
+        public Socket Socket                   { get; set; }
+        //public ConnectedClient ConnectedClient { get; set; }
 
-        public int Length { get; set; }
-
-        private PooledMessage() { }
+        internal PooledMessage() { }
 
         public static PooledMessage Rent(int length)
         {
@@ -48,12 +48,8 @@ namespace SimplSockets
                 Length = length,
                 _rented = true
             };
+            _rentCount++;
             return message;
-        }
-
-        public static void Return(byte[] content)
-        {
-            ArrayPool.Return(content);
         }
 
         public void Sent()
@@ -82,6 +78,12 @@ namespace SimplSockets
             _rented          = false;
             _returnAfterSend = false;
             _sent            = false;
+            _rentCount--;
+        }
+
+        public static int GetNoRentedMessages()
+        {
+            return _rentCount;
         }
 
         public void Dispose()

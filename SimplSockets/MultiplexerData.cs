@@ -7,7 +7,7 @@ namespace SimplSockets
     /// </summary>
     internal class MultiplexerData
     {
-        public byte[] Message { get; set; }
+        public PooledMessage Message { get; set; }
         public ManualResetEventSlim ManualResetEventSlim { get; set; }
     }
 }
