@@ -83,8 +83,8 @@ namespace SimplSocketsClient
 ```
 
 That's it! The Wiki goes into more depth on
-* [Connecting clients to server](/thijse/simplsockets/wiki/Connecting) 
-* [Sending bytes using SimplSockets](/thijse/simplsockets/wiki/Sending-bytes) 
+* [Connecting clients to server](../../wiki/Connecting) 
+* [Sending bytes using SimplSockets](../../wiki/Sending-bytes) 
 
 , more options and expand this example. It will also Before we do that, however, we will first explore the functionality of the lower-level SimplSockets library. If you want, you can skip this part and go directly to the SimplMessage examples.
 
