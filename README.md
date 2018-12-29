@@ -81,14 +81,14 @@ namespace SimplSocketsClient
 }
 ```
 
-That's it! The Wiki goes into more depth on
+That's it! The Wiki goes into more depth on different topics:
 * [Connecting clients to server](../../wiki/Connecting) 
+
 * [Sending raw bytes using SimplSockets](../../wiki/Sending-bytes) 
 * [Receiving raw bytes using SimplSockets](../../wiki/Receiving-bytes) 
+
 * [Sending objects using SimplMessage](../../wiki/Sending-objects) 
 * [Receiving objects using SimplMessage](../../wiki/Receiving-objects) 
-
-, more options and expand this example. It will also Before we do that, however, we will first explore the functionality of the lower-level SimplSockets library. If you want, you can skip this part and go directly to the SimplMessage examples.
 
 Credits
 ===========
