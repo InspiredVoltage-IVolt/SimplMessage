@@ -88,7 +88,6 @@ That's it! The Wiki goes into more depth on different topics:
 * [Sending objects using SimplMessage](../../wiki/Sending-objects) 
 * [Receiving objects using SimplMessage](../../wiki/Receiving-objects) 
 * [Using SimpMessage in Unity](../../wiki/Unity-support) 
-Unity-support
 
 Credits
 ===========
