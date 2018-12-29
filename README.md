@@ -91,7 +91,7 @@ That's it! The Wiki goes into more depth on different topics:
 Credits
 ===========
 
-This library is forked from [SimplSockets](https://github.com/haneytron/simplsockets) (MIT) by [David Haney](https://github.com/haneytron), A spinoff library of Dache that provides highly efficient, scalable, simple socket communication. http://www.dache.io. It has been significantly refactored, optimized and extended, but still a lot of the code is based on this library.
+This library is forked from [SimplSockets](https://github.com/haneytron/simplsockets) (MIT) by [David Haney](https://github.com/haneytron). It has been significantly refactored, optimized and extended, but a lot, if not most, of the code is based on that library. 
 
 The serialization and deserialization of objects is done using [msgpack-cli](https://github.com/msgpack/msgpack-cli) (Apache) by [Yusuke Fujiwara](https://github.com/yfakariya).
 
