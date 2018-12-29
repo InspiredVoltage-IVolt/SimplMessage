@@ -1,4 +1,4 @@
-SimplMessage & SimplSockets
+![logo](SimplMessage.png)
 ===========
 
 SimplSockets is a socket library that provides highly efficient, scalable, simple socket communication that allows you to send, receive and reply with binary messages. It also comes with auto-discovery and auto-connection functionality 
