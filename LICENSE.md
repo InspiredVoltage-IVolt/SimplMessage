@@ -1,4 +1,4 @@
-MIT License
+## MIT License
 
 Copyright (c) 2018 Thijs Elenbaas, 2016 Imperative Bytes, LLC
 
