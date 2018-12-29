@@ -1,6 +1,6 @@
 ## MIT License
 
-Copyright (c) 2018 [hijs Elenbaas](https://github.com/thijse), [Imperative Bytes, LLC](https://github.com/haneytron)
+Copyright (c) 2018 [Thijs Elenbaas](https://github.com/thijse), [Imperative Bytes, LLC](https://github.com/haneytron)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
