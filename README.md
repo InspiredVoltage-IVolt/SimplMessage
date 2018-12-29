@@ -92,11 +92,11 @@ That's it! The Wiki goes into more depth on
 Credits
 ===========
 
-This library is forked from [simplSockets](https://github.com/haneytron/simplsockets) by [David Haney](https://github.com/haneytron), A spinoff library of Dache that provides highly efficient, scalable, simple socket communication. http://www.dache.io. It has been significantly refactored, optimized and extended, but still a lot of the code is based on this library.
+This library is forked from [simplSockets](https://github.com/haneytron/simplsockets) (MIT) by [David Haney](https://github.com/haneytron), A spinoff library of Dache that provides highly efficient, scalable, simple socket communication. http://www.dache.io. It has been significantly refactored, optimized and extended, but still a lot of the code is based on this library.
 
-The serialization and deserialization of objects is done using [msgpack-cli](https://github.com/msgpack/msgpack-cli) by [Yusuke Fujiwara](https://github.com/yfakariya).
+The serialization and deserialization of objects is done using [msgpack-cli](https://github.com/msgpack/msgpack-cli) (Apache) by [Yusuke Fujiwara](https://github.com/yfakariya).
 
-The server discovery code is done using [Beacon](https://github.com/rix0rrr/beacon) by [Rico Huijbers](https://github.com/rix0rrr)
+The server discovery code is done using [Beacon](https://github.com/rix0rrr/beacon) (MIT) by [Rico Huijbers](https://github.com/rix0rrr)
 
 
 
