@@ -39,9 +39,8 @@ namespace SimplSocketsClient
             var server = new SimplMessageServer();
 
             // Create a callback for received data of type classA
-            server.AddCallBack<ClassA>(ServerReceivedClassACallback);
-
-            // You could also implement this as a lambda function:
+            // (you could also implement this as a lambda function)
+            server.AddCallBack<ClassA>(ServerReceivedClassACallback);            
 
             // Start listening for client connections on loopback end point
             server.Listen(new IPEndPoint(IPAddress.Loopback, 5000));
