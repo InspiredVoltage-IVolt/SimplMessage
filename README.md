@@ -9,7 +9,7 @@ SimplMessage is build on top of SimplSocket and facilitates sending and receivin
 Quickstart
 ===========
 
-Let's start with a basic example of sending an object from a client to the server, before diving into all the details
+To give a sense of what the library does, Let's look at a basic example of sending an object from a client to the server
 
 ```csharp
 using System;
@@ -77,15 +77,16 @@ namespace SimplSocketsClient
             // Notify that the server received data
             Console.WriteLine($"Server received message: {receivedObject.VarDouble}, {receivedObject.VarInt}");
         }
-
     }
 }
 ```
 
 That's it! The Wiki goes into more depth on
 * [Connecting clients to server](../../wiki/Connecting) 
-* [Sending bytes using SimplSockets](../../wiki/Sending-bytes) 
-* [Receiving bytes using SimplSockets](../../wiki/Receiving-bytes) 
+* [Sending raw bytes using SimplSockets](../../wiki/Sending-bytes) 
+* [Receiving raw bytes using SimplSockets](../../wiki/Receiving-bytes) 
+* [Sending objects using SimplMessage](../../wiki/Sending-objects) 
+* [Receiving objects using SimplMessage](../../wiki/Receiving-objects) 
 
 , more options and expand this example. It will also Before we do that, however, we will first explore the functionality of the lower-level SimplSockets library. If you want, you can skip this part and go directly to the SimplMessage examples.
 
