@@ -5,7 +5,6 @@ SimplSockets is a socket library that provides highly efficient, scalable, simpl
 
 SimplMessage is build on top of SimplSocket and facilitates sending and receiving objects of any class type.
 
-
 Quickstart
 ===========
 
