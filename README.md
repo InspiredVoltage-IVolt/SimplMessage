@@ -1,9 +1,10 @@
 ![logo](SimplMessage.png)
 ===========
 
-SimplSockets is a socket library that provides highly efficient, scalable, simple socket communication that allows you to send, receive and reply with binary messages. It also comes with auto-discovery and auto-connection functionality 
+SimplMessage is build on top of SimplSocket and facilitates sending and receiving objects of any class type. It also comes with auto-discovery and auto-connection functionality 
 
-SimplMessage is build on top of SimplSocket and facilitates sending and receiving objects of any class type.
+SimplSockets is a socket library that provides highly efficient, scalable, simple socket communication that allows you to send, receive and reply with binary messages.
+
 
 Quickstart
 ===========
