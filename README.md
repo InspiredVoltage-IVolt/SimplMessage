@@ -1,15 +1,15 @@
-SimplMessage & SimplSockets
+![logo](SimplMessage.png)
 ===========
 
-SimplSockets is a socket library that provides highly efficient, scalable, simple socket communication that allows you to send, receive and reply with binary messages. It also comes with auto-discovery and auto-connection functionality 
+*SimplMessage* is build on top of SimplSocket and facilitates sending and receiving objects of any class type. It also comes with auto-discovery and auto-connection functionality 
 
-SimplMessage is build on top of SimplSocket and facilitates sending and receiving objects of any class type.
+*SimplSockets* is a socket library that provides highly efficient, scalable, simple socket communication that allows you to send, receive and reply with binary messages.
 
 
 Quickstart
 ===========
 
-Let's start with a basic example of sending an object from a client to the server, before diving into all the details
+To give a sense of what the library does, Let's look at a basic example of sending an object from a client to the server
 
 ```csharp
 using System;
@@ -40,9 +40,8 @@ namespace SimplSocketsClient
             var server = new SimplMessageServer();
 
             // Create a callback for received data of type classA
-            server.AddCallBack<ClassA>(ServerReceivedClassACallback);
-
-            // You could also implement this as a lambda function:
+            // (you could also implement this as a lambda function)
+            server.AddCallBack<ClassA>(ServerReceivedClassACallback);            
 
             // Start listening for client connections on loopback end point
             server.Listen(new IPEndPoint(IPAddress.Loopback, 5000));
@@ -77,16 +76,27 @@ namespace SimplSocketsClient
             // Notify that the server received data
             Console.WriteLine($"Server received message: {receivedObject.VarDouble}, {receivedObject.VarInt}");
         }
-
     }
 }
 ```
 
-That's it! In the next steps we will go through more options and expand this example. Before we do that, however, we will first explore the functionality of the lower-level SimplSockets library. If you want, you can skip this part and go directly to the SimplMessage examples.
+That's it! The Wiki goes into more depth on different topics:
+* [Connecting clients to server](../../wiki/Connecting) 
+* [Sending raw bytes using SimplSockets](../../wiki/Sending-bytes) 
+* [Receiving raw bytes using SimplSockets](../../wiki/Receiving-bytes) 
+* [Sending objects using SimplMessage](../../wiki/Sending-objects) 
+* [Receiving objects using SimplMessage](../../wiki/Receiving-objects) 
+* [Using SimpMessage in Unity](../../wiki/Unity-support) 
 
 Credits
 ===========
 
-This work is forked from simplSockets, A spinoff library of Dache that provides highly efficient, scalable, simple socket communication. http://www.dache.io
+This library is forked from [SimplSockets](https://github.com/haneytron/simplsockets) (MIT) by [David Haney](https://github.com/haneytron). It has been significantly refactored, optimized and extended, but a lot, if not most, of the code is based on that library. 
 
-It has been significantly refactored, optimized and extended, but still a lot of the code is based on this library.
+The serialization and deserialization of objects is done using [msgpack-cli](https://github.com/msgpack/msgpack-cli) (Apache) by [Yusuke Fujiwara](https://github.com/yfakariya).
+
+The server discovery code is done using [Beacon](https://github.com/rix0rrr/beacon) (MIT) by [Rico Huijbers](https://github.com/rix0rrr)
+
+
+
+
