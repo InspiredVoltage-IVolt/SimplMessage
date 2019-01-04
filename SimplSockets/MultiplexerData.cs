@@ -8,6 +8,6 @@ namespace SimplSockets
     internal class MultiplexerData
     {
         public PooledMessage Message { get; set; }
-        public ManualResetEventSlim ManualResetEventSlim { get; set; }
+        public ManualResetEvent ManualResetEventSlim { get; set; }
     }
 }

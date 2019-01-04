@@ -12,7 +12,7 @@ namespace SimplSockets
         /// Begin listening for incoming connections. Once this is called, you must call Close before calling Listen again.
         /// </summary>
         /// <param name="localEndpoint">The local endpoint to listen on.</param>
-        void Listen(IPEndPoint localEndpoint, string name, string description, bool discoverable);
+        void Listen(IPEndPoint localEndpoint, bool discoverable, string name, string description);
 
         /// <summary>
         /// Broadcasts a message to all connected clients without waiting for a response (one-way communication).

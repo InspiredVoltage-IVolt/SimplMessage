@@ -9,10 +9,6 @@ using System.Threading.Tasks;
 namespace SimplMessage
 {
 
-    //to do:
-    // - implement receivedMessage callbacks
-    // - implement zero-copy
-    // - add documentation
     public class SimplMessageClient : IDisposable
     {
         private readonly SimplSocketClient                  _simplSocketClient;
@@ -37,7 +33,16 @@ namespace SimplMessage
         /// </summary>
         public event EventHandler<ServerEndpointArgs> ConnectionAttempt;
 
-
+        /// <summary>
+        /// Get instance of SimplMessageClient
+        /// </summary>
+        /// <returns>instantiated SimplMessageClient</returns>
+        public static SimplMessageClient Instance { get { return Nested.instance; } }
+        private class Nested
+        {
+            static Nested() { } // Explicit static constructor to tell C# compiler not to mark type as beforefieldinit
+            internal static readonly SimplMessageClient instance = new SimplMessageClient();
+        }
 
         /// <summary>
         /// The constructor. It is initialized with a default socket.
@@ -192,7 +197,7 @@ namespace SimplMessage
         }
 
         public void RemoveCallBack<T>() { RemoveCallBack(typeof(T).Name); }
-        public void RemoveCallBack(string identifier)
+        public void RemoveCallBack   (string identifier)
         {
             if (_callbacks.ContainsKey(identifier))
             {
@@ -228,9 +233,24 @@ namespace SimplMessage
             return _simplSocketClient.Connect(new IPEndPoint(IPAddress,port));
         }
 
-        public void AutoConnect(string serverName = "SimplSocketServer")
+        public void AutoConnect(string serverName = "SimplMessageServer")
         {
             _simplSocketClient.AutoConnect(serverName);
+        }
+
+        public void Disconnect()
+        {
+            _simplSocketClient.Disconnect();
+        }
+
+        public void Close()
+        {
+            _simplSocketClient.Close();
+        }
+
+        public void ManualConnect()
+        {
+            _simplSocketClient.ManualConnect();
         }
 
         public void AutoConnect(IPEndPoint endPoint)
@@ -243,32 +263,35 @@ namespace SimplMessage
         {
              _simplSocketClient.WaitForConnection();
         }
+
+        public bool WaitForConnection(TimeSpan timeOut)
+        {
+            return _simplSocketClient.WaitForConnection(timeOut);
+        }
 #endif
+
 
         public async Task WaitForConnectionAsync()
         {
             await _simplSocketClient.WaitForConnectionAsync();
         }
 
+        public async Task<bool>WaitForConnectionAsync(TimeSpan timeOut)
+        {
+            return await _simplSocketClient.WaitForConnectionAsync(timeOut);
+        }
+
+
+        public void Send<TIn>(                  TIn message) { Send<TIn>(typeof(TIn).Name, message); }
         public void Send<TIn>(string identifier,TIn message)
         {
             var rawMessage = _serializer.Serialize(identifier,message);
             if (rawMessage==null) return;
             _simplSocketClient.Send(rawMessage);
-        }
+        }            
 
-        public void Send<TIn>(TIn message) { Send<TIn>(typeof(TIn).Name, message); }
-
-        public static T GetMessage<T>(byte[] message)
-        {
-            var outMessage = MsgPackCliSerializer.DeserializeMessage<T>(message);
-            if (outMessage == null) return default(T);
-            return outMessage;
-        }        
-
-        public TOut SendReceive<TIn, TOut>(TIn message) { return SendReceive<TIn, TOut>(typeof(TIn).Name, message); }
-
-        public TOut SendReceive<TIn, TOut>(string identifier, TIn message)
+        public TOut SendReceive<TIn, TOut>(                   TIn message, int replyTimeout = 0) { return SendReceive<TIn, TOut>(typeof(TIn).Name, message, replyTimeout); }
+        public TOut SendReceive<TIn, TOut>(string identifier, TIn message, int replyTimeout = 0)
         {
             var rawMessage  = _serializer.Serialize(identifier,message);
             if (rawMessage  == null) return default(TOut);
@@ -280,22 +303,24 @@ namespace SimplMessage
             return response;
         }
 
-        public TOut SendReceive<TIn, TOut>(TIn message, out string identifierReceived) { return SendReceive<TIn, TOut>(typeof(TIn).Name, message, out identifierReceived); }
-
-        public TOut SendReceive<TIn, TOut>(string identifier, TIn message, out string identifierReceived)
+        public async Task<TOut> SendReceiveAsync<TIn, TOut>(                   TIn message, int replyTimeout = 0) { return await SendReceiveAsync<TIn, TOut>(typeof(TIn).Name, message, replyTimeout); }
+        public async Task<TOut> SendReceiveAsync<TIn, TOut>(string identifier, TIn message, int replyTimeout = 0)
         {
-            identifierReceived = null;
-            var rawMessage     = _serializer.Serialize(identifier, message);
-            if (rawMessage     == null) return default(TOut);
-            var rawResponse    = _simplSocketClient.SendReceive(rawMessage);
-            var response       = _serializer.Deserialize<TOut>(rawResponse.Content, out identifierReceived);
+            var rawMessage = _serializer.Serialize(identifier, message);
+            if (rawMessage == null) return default(TOut);
+            var rawResponse = await _simplSocketClient.SendReceiveAsync(rawMessage);
+            if (rawResponse == null) return default(TOut);
+            var response = _serializer.Deserialize<TOut>(rawResponse.Content);
             rawResponse.Dispose();
+            if (response == null) return default(TOut);
             return response;
         }
 
-        public void Close()
+        public static T GetMessage<T>(byte[] message)
         {
-            _simplSocketClient.Close();
+            var outMessage = MsgPackCliSerializer.DeserializeMessage<T>(message);
+            if (outMessage == null) return default(T);
+            return outMessage;
         }
 
         public bool IsConnected()

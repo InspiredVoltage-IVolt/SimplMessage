@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 using SimplSockets;
+using System.Threading;
+using System.Threading.Tasks;
+
 
 namespace SimplMessage
 {
@@ -24,6 +27,17 @@ namespace SimplMessage
         /// An event that is fired when a client has disconnected from the server. Hook into this to do something when a connection is lost.
         /// </summary>
         public event EventHandler                      ClientDisconnected;
+
+        /// <summary>
+        /// Get instance of SimplMessageServer
+        /// </summary>
+        /// <returns>instantiated SimplMessageServer</returns>
+        public static SimplMessageServer Instance { get { return Nested.instance; } }
+        private class Nested
+        {
+            static Nested() { } // Explicit static constructor to tell C# compiler not to mark type as beforefieldinit
+            internal static readonly SimplMessageServer instance = new SimplMessageServer();
+        }
 
         /// <summary>
         /// The constructor. It is initialized with a default socket.
@@ -129,6 +143,19 @@ namespace SimplMessage
             }
         }
 
+        public void Send<TIn>(TIn message, ConnectedClient connectedClient)
+        {
+            Send<TIn>(typeof(TIn).Name, message, connectedClient);
+        }
+
+        public void Send<TIn>(string identifier, TIn message, ConnectedClient connectedClient)
+        {
+            var rawMessage = _serializer.Serialize(identifier, message);
+            if (rawMessage == null) return;
+            _simplSocketServer.Send(rawMessage, connectedClient);
+        }
+
+
         public void Send<TIn>(Socket connectedSocket, TIn message)
         {
             Send<TIn>(connectedSocket, typeof(TIn).Name, message);
@@ -182,14 +209,27 @@ namespace SimplMessage
             _simplSocketServer.Dispose();
         }
 
-        public void Listen(IPEndPoint ipEndPoint, bool discoverable = false, string name = "SimplSocketServer", string description = null)
+        public void Listen(IPEndPoint ipEndPoint, bool discoverable = true, string name = "SimplMessageServer", string description = null)
         {
-            _simplSocketServer.Listen(ipEndPoint, discoverable, name);
+            _simplSocketServer.Listen(ipEndPoint, discoverable, name, description);
         }
 
-        public void Listen(IPAddress IPAddress, int port, bool discoverable = false, string name = "SimplSocketServer", string description = null)
+        public void Listen(IPAddress IPAddress, int port, bool discoverable = true, string name = "SimplMessageServer", string description = null)
         {
-            _simplSocketServer.Listen(new IPEndPoint(IPAddress, port), discoverable, name);
+            _simplSocketServer.Listen(new IPEndPoint(IPAddress, port), discoverable, name, description);
         }
+
+        public async Task<ConnectedClient> WaitForNewClientAsync()
+        {
+            return await _simplSocketServer.WaitForNewClientAsync();
+        }
+
+#if (!WINDOWS_UWP)
+        public ConnectedClient WaitForNewClient()
+        {
+            return _simplSocketServer.WaitForNewClient();
+        }
+#endif
+
     }
 }

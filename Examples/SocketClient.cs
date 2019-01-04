@@ -23,7 +23,7 @@ namespace SimplSocketsClient
             {
                 // subscribe to broadcasts
                 // client.MessageReceived += async (s, e) => await WriteLineAsync('*', e.ReceivedMessage.PooledMessage);
-                client.MessageReceived += async (s, e) => { e.ReceivedMessage.Dispose(); };
+                client.MessageReceived += (s, e) => { e.ReceivedMessage.Dispose(); };
 
 
                 client.Connected    += (s, e) =>

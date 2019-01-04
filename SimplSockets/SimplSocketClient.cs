@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -48,6 +49,7 @@ namespace SimplSockets
         private readonly BlockingQueue<SocketAsyncEventArgs> _receiveBufferQueue = null;
         // The send buffer manual reset event
         private readonly ManualResetEventSlim                _sendBufferReset    = new ManualResetEventSlim(false);
+        private bool _lastStateConnected                                         = false;
 
         // Whether or not a connection currently exists
         private volatile bool _isConnected                                       = false;
@@ -96,6 +98,17 @@ namespace SimplSockets
         /// Whether or not to send keep-alive packets and detect if alive.
         /// </summary>
         public bool KeepAlive { get; set; }
+
+        /// <summary>
+        /// Get instance of SimpleSocketClient
+        /// </summary>
+        /// <returns>instantiated SimplSocketClient</returns>
+        public static SimplSocketClient Instance { get { return Nested.instance; } }
+        private class Nested
+        {
+            static Nested() { } // Explicit static constructor to tell C# compiler not to mark type as beforefieldinit
+            internal static readonly SimplSocketClient instance = new SimplSocketClient();
+        }
 
         /// <summary>
         /// Convenience function to creates a new TCP socket with default settings. This socket can be modified and can be used to initialize the constructor with.
@@ -169,7 +182,7 @@ namespace SimplSockets
             _clientMultiplexer    = new Dictionary<int, MultiplexerData>(PredictedThreadCount);
 
             // Create the pools
-            _multiplexerDataPool = new Pool<MultiplexerData>(PredictedThreadCount, () => new MultiplexerData { ManualResetEventSlim = new ManualResetEventSlim(false) }, multiplexerData => 
+            _multiplexerDataPool = new Pool<MultiplexerData>(PredictedThreadCount, () => new MultiplexerData { ManualResetEventSlim = new ManualResetEvent(false) }, multiplexerData => 
             {
                 multiplexerData.Message = null;
                 multiplexerData.ManualResetEventSlim.Reset();
@@ -198,6 +211,11 @@ namespace SimplSockets
             _socketErrorArgsPool     = new Pool<SocketErrorArgs>    (PredictedThreadCount, () => new SocketErrorArgs()    , socketErrorArgs     => { socketErrorArgs.Exception           = null; });
         }
 
+        public void ManualConnect()
+        {
+            _connectionMode = ConnectionModes.Manual;
+        }
+
         /// <summary>
         /// Automatically reconnect if connection gets broken
         /// </summary>
@@ -205,7 +223,7 @@ namespace SimplSockets
         /// <returns></returns>
         public void AutoConnect(IPEndPoint endPoint)
         {
-            if (_connectionMode != ConnectionModes.Manual) return;
+            if (_connectionMode == ConnectionModes.fixedEndPoint) return;
             _connectionMode = ConnectionModes.fixedEndPoint;
             Task.Run(() => KeepConnectedAsync(endPoint));
         }
@@ -217,13 +235,14 @@ namespace SimplSockets
         /// <returns></returns>
         public void AutoConnect(string serverName= "SimplSocketServer")
         {
-            if (_connectionMode != ConnectionModes.Manual) return;
+            if (_connectionMode == ConnectionModes.Discovery) return;
             _connectionMode = ConnectionModes.Discovery;
             _probe = new Probe(serverName);
             _probe.BeaconsUpdated += beacons =>  {
                 lock (_beaconsLock)
                 {
-                    _beacons = beacons;
+                    _beacons = beacons.ToList();
+
                 }
             };
 
@@ -234,7 +253,7 @@ namespace SimplSockets
 
         private async Task KeepConnectedAsync(IPEndPoint endPoint)
         {
-            while (true)
+            while (_connectionMode == ConnectionModes.fixedEndPoint)
             {
                 if (!_isConnected)
                 {
@@ -254,6 +273,18 @@ namespace SimplSockets
             return;
         }
 
+        public async Task<bool> WaitForConnectionAsync(TimeSpan timeOut)
+        {
+            var stopwatch = new Stopwatch();
+            stopwatch.Start();
+            while (!_isConnected)
+            {
+                if (stopwatch.Elapsed > timeOut) return false;
+                await Task.Delay(500);
+            }
+            return true;
+        }
+
 #if (!WINDOWS_UWP)
         public void WaitForConnection()
         {
@@ -263,14 +294,25 @@ namespace SimplSockets
             }
             return;
         }
-#endif
 
+        public bool WaitForConnection(TimeSpan timeOut)
+        {
+            var stopwatch = new Stopwatch();
+            stopwatch.Start();
+            while (!_isConnected)
+            {
+                if (stopwatch.Elapsed > timeOut) return false;
+                Thread.Sleep(500);
+            }
+            return true;
+        }
+#endif
 
         private async Task KeepConnectedAsync(string serverName)
         {
             var ipaddresses = Dns.GetHostAddresses(Dns.GetHostName()).ToList();
 
-            while (true)
+            while (_connectionMode == ConnectionModes.Discovery)
             {
                 // Check if not connected
                 if (!_isConnected)
@@ -322,8 +364,15 @@ namespace SimplSockets
                 throw new ArgumentNullException(nameof(endPoint));
             }
 
+            _connectionMode = ConnectionModes.Manual;
+
             lock (_isConnectedLock)
             {
+                if (_isConnected)
+                {
+                    Disconnect();
+                }
+
                 if (_isConnected)
                 {
                     throw new InvalidOperationException("socket is already in use");
@@ -362,7 +411,8 @@ namespace SimplSockets
                 // Process all incoming messages on a separate thread
                 Task.Run(() => ProcessReceivedMessage(_socket));
 
-                _isConnected = true;
+                _isConnected        = true;
+                _lastStateConnected = true;
                 Connected?.Invoke(this,new ServerEndpointArgs(_socket.RemoteEndPoint as IPEndPoint));
             }
 
@@ -431,8 +481,9 @@ namespace SimplSockets
         /// Sends a message to the server and then waits for the response to that message.
         /// </summary>
         /// <param name="message">The message to send.</param>
+        /// <param name="replyTimeout">Time to wait for an answer.</param>
         /// <returns>The response message.</returns>
-        public PooledMessage SendReceive(byte[] message)
+        public PooledMessage SendReceive(byte[] message, int replyTimeout = 0)
         {      
             return SendReceive(new Message(message));
         }
@@ -442,14 +493,17 @@ namespace SimplSockets
         /// Sends a message to the server and then waits for the response to that message.
         /// </summary>
         /// <param name="message">The message to send.</param>
+        /// <param name="replyTimeout">Time to wait for an answer.</param>
         /// <returns>The response message.</returns>
-        public PooledMessage SendReceive(IMessage message)
+        public PooledMessage SendReceive(IMessage message, int replyTimeout = 0)
         {
             // Sanitize
             if (message?.Content == null)
             {
                 throw new ArgumentNullException(nameof(message));
             }
+
+            if (replyTimeout == 0) replyTimeout = _communicationTimeout;
 
             if (!_isConnected) return null;
 
@@ -467,8 +521,79 @@ namespace SimplSockets
             _sendBufferQueue.EnqueueFront(socketAsyncEventArgs);
 
             // Wait for our message to go ahead from the receive callback, or until the timeout is reached
-            if (!multiplexerData.ManualResetEventSlim.Wait(_communicationTimeout))
+            if (!multiplexerData.ManualResetEventSlim.WaitOne(replyTimeout))
             {
+                // Timeout
+                HandleCommunicationError(_socket, new TimeoutException("The connection timed out before the response message was received"));
+
+                // Un-enroll from the multiplexer
+                UnenrollMultiplexer(threadId);
+
+                // tell message that it can return to the pool
+                messageWithControlBytes?.Return();
+
+                // No signal
+                return null;
+            }
+
+            // Now get the command string
+            var result = multiplexerData.Message;
+
+            // Un-enroll from the multiplexer
+            UnenrollMultiplexer(threadId);
+
+            // tell message that it can return to the pool
+            messageWithControlBytes?.Return();
+
+            return result;
+        }
+
+        /// <summary>
+        /// Sends a message to the server and then awaits for the response to that message.
+        /// </summary>
+        /// <param name="message">The message to send.</param>
+        /// <param name="replyTimeout">Time to wait for an answer.</param>
+        /// <returns>The response message.</returns>
+        public async Task<PooledMessage> SendReceiveAsync(byte[] message, int replyTimeout = 0)
+        {
+            return await SendReceiveAsync(new Message(message), replyTimeout);
+        }
+
+        /// <summary>
+        /// Sends a message to the server and then awaits for the response to that message.
+        /// </summary>
+        /// <param name="message">The message to send.</param>
+        /// <param name="replyTimeout">Time to wait for an answer.</param>
+        /// <returns>The response message.</returns>
+        public async Task<PooledMessage> SendReceiveAsync(IMessage message, int replyTimeout = 0)
+        {
+            // Sanitize
+            if (message?.Content == null)
+            {
+                throw new ArgumentNullException(nameof(message));
+            }
+
+            if (replyTimeout == 0) replyTimeout = _communicationTimeout;
+
+            if (!_isConnected) return null;
+
+            // Get the current thread ID
+            int threadId = GetThreadId();
+
+            // Enroll in the multiplexer
+            var multiplexerData            = EnrollMultiplexer(threadId);
+            var messageWithControlBytes    = ProtocolHelper.AppendControlBytesToMessage(message, threadId);
+            var socketAsyncEventArgs       = _socketAsyncEventArgsSendPool.Pop();
+            socketAsyncEventArgs.SetBuffer(messageWithControlBytes.Content, 0, messageWithControlBytes.Length);
+            socketAsyncEventArgs.UserToken = messageWithControlBytes;
+
+            // Prioritize sends that have receives to the front of the queue
+            _sendBufferQueue.EnqueueFront(socketAsyncEventArgs);
+
+            // Wait for our message to go ahead from the receive callback, or until the timeout is reached
+            if (!await multiplexerData.ManualResetEventSlim.WaitOneAsync(replyTimeout, new CancellationToken()))
+            {
+                // Timeout
                 HandleCommunicationError(_socket, new TimeoutException("The connection timed out before the response message was received"));
 
                 // Un-enroll from the multiplexer
@@ -785,7 +910,7 @@ namespace SimplSockets
             if (CloseSocket(ref socket)) return;
 
             // No longer connected
-            var wasConnected = _isConnected; 
+
             _isConnected = false;
 
             // Clear receive queue for this client
@@ -801,18 +926,37 @@ namespace SimplSockets
                 _socketErrorArgsPool.Push(socketErrorArgs);
             }
 
-            if (wasConnected) Disconnected?.Invoke(this, null);
+            NotifyDisconnect();
 
+        }
+
+        private void NotifyDisconnect()
+        {
+            if (_lastStateConnected)
+            {
+                Disconnected?.Invoke(this, null);
+                _lastStateConnected = false;
+            }
+        }
+
+        /// <summary>
+        /// Disconnects the connection. Once this is called, you can call Connect again to start a new client connection.
+        /// Note that this will not stop autoconnecting
+        /// </summary>
+        public void Disconnect()
+        {
+            Close();
         }
 
         /// <summary>
         /// Closes the connection. Once this is called, you can call Connect again to start a new client connection.
+        /// /// Note that this will not stop autoconnecting
         /// </summary>
         public void Close()
         {
             // Close the socket
             CloseSocket(ref _socket);
-            _isConnected = false;
+
         }
 
         private bool CloseSocket(ref Socket socket)
@@ -845,6 +989,8 @@ namespace SimplSockets
                                
             }
 
+            _isConnected = false;
+            NotifyDisconnect();
             return false;
         }
 

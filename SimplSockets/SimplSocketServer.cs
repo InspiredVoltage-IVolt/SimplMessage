@@ -71,6 +71,17 @@ namespace SimplSockets
         }
 
         /// <summary>
+        /// Get instance of SimplSocketServer
+        /// </summary>
+        /// <returns>instantiated SimplSocketServer</returns>
+        public static SimplSocketServer Instance { get { return Nested.instance; } }
+        private class Nested
+        {
+            static Nested() { } // Explicit static constructor to tell C# compiler not to mark type as beforefieldinit
+            internal static readonly SimplSocketServer instance = new SimplSocketServer();
+        }
+
+        /// <summary>
         /// The constructor. It is initialized with a default socket.
         /// </summary>
         /// <param name="messageBufferSize"   >The message buffer size to use for send/receive.</param>
@@ -153,7 +164,17 @@ namespace SimplSockets
         /// Begin listening for incoming connections. Once this is called, you must call Close before calling Listen again.
         /// </summary>
         /// <param name="localEndpoint">The local endpoint to listen on.</param>
-        public void Listen(IPEndPoint localEndpoint, string name= "SimplSocketServer", string description = null, bool discoverable = true)
+        public void Listen(IPAddress adress, int port, bool discoverable = true, string name = "SimplSocketServer", string description = null)
+        {
+            Listen(new IPEndPoint(adress, port), discoverable, name, description);
+        }
+
+
+        /// <summary>
+            /// Begin listening for incoming connections. Once this is called, you must call Close before calling Listen again.
+            /// </summary>
+            /// <param name="localEndpoint">The local endpoint to listen on.</param>
+            public void Listen(IPEndPoint localEndpoint, bool discoverable = true, string name= "SimplSocketServer", string description = null)
         {
             // Sanitize
             if (localEndpoint == null)
@@ -944,5 +965,59 @@ namespace SimplSockets
 
             return true;
         }
+
+
+        public async Task<ConnectedClient> WaitForConnectionAsync()
+        {
+            // Get list of connected clients before 
+            var _connectedClients = ConnectedClients.ToList();
+
+            while (true)
+            {
+                foreach (var connectedClient in ConnectedClients)
+                {
+                    if (!_connectedClients.Contains(connectedClient)) return connectedClient;
+                }
+                await Task.Delay(500);
+
+            }
+        }
+
+
+        public async Task<ConnectedClient> WaitForNewClientAsync()
+        {
+            // Get list of connected clients before 
+            var _connectedClients = ConnectedClients.ToList();
+
+            while (true)
+            {
+                foreach (var connectedClient in ConnectedClients)
+                {
+                    if (!_connectedClients.Contains(connectedClient)) return connectedClient;
+                }
+                await Task.Delay(500);
+
+            }
+        }
+
+#if (!WINDOWS_UWP)
+        public ConnectedClient WaitForNewClient()
+        {
+            // Get list of connected clients before 
+            var _connectedClients = ConnectedClients.ToList();
+
+            while (true)
+            {
+                foreach (var connectedClient in ConnectedClients)
+                {
+                    if (!_connectedClients.Contains(connectedClient)) return connectedClient;
+                }
+
+                Thread.Sleep(500);
+
+            }
+        }
+#endif
+
     }
 }
