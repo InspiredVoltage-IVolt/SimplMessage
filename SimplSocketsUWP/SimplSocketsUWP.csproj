@@ -106,8 +106,26 @@
     <RestoreProjectStyle>PackageReference</RestoreProjectStyle>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="..\SimplSockets\Beacon\Beacon.cs">
+      <Link>Beacon\Beacon.cs</Link>
+    </Compile>
+    <Compile Include="..\SimplSockets\Beacon\BeaconLocation.cs">
+      <Link>Beacon\BeaconLocation.cs</Link>
+    </Compile>
+    <Compile Include="..\SimplSockets\Beacon\IPEndPointComparer.cs">
+      <Link>Beacon\IPEndPointComparer.cs</Link>
+    </Compile>
+    <Compile Include="..\SimplSockets\Beacon\Probe.cs">
+      <Link>Beacon\Probe.cs</Link>
+    </Compile>
     <Compile Include="..\SimplSockets\BlockingQueue.cs">
       <Link>BlockingQueue.cs</Link>
+    </Compile>
+    <Compile Include="..\SimplSockets\ClientConnectedArgs.cs">
+      <Link>ClientConnectedArgs.cs</Link>
+    </Compile>
+    <Compile Include="..\SimplSockets\ConnectedClient.cs">
+      <Link>ConnectedClient.cs</Link>
     </Compile>
     <Compile Include="..\SimplSockets\IMessage.cs">
       <Link>IMessage.cs</Link>
@@ -141,6 +159,9 @@
     </Compile>
     <Compile Include="..\SimplSockets\SocketErrorArgs.cs">
       <Link>SocketErrorArgs.cs</Link>
+    </Compile>
+    <Compile Include="..\SimplSockets\WaitHandleExtensions.cs">
+      <Link>WaitHandleExtensions.cs</Link>
     </Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />
     <EmbeddedResource Include="Properties\SimplSocketsUWP.rd.xml" />

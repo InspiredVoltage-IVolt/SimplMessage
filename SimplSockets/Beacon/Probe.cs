@@ -35,9 +35,10 @@ namespace SimplSockets
             udp.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
 
             BeaconType = beaconType;
-            thread = new Thread(BackgroundLoop) { IsBackground = true };
+            thread     = new Thread(BackgroundLoop) { IsBackground = true };
 
             udp.Client.Bind(new IPEndPoint(IPAddress.Any, 0));
+#if (!WINDOWS_UWP)
             try 
             {
                 udp.AllowNatTraversal(true);
@@ -46,7 +47,7 @@ namespace SimplSockets
             {
                 Debug.WriteLine("Error switching on NAT traversal: " + ex.Message);
             }
-
+#endif
             udp.BeginReceive(ResponseReceived, null);
         }
 
@@ -57,9 +58,8 @@ namespace SimplSockets
 
         private void ResponseReceived(IAsyncResult ar)
         {
-            var remote = new IPEndPoint(IPAddress.Any, 0);
-            var bytes = udp.EndReceive(ar, ref remote);
-
+            var remote    = new IPEndPoint(IPAddress.Any, 0);
+            var bytes     = udp.EndReceive(ar, ref remote);
             var typeBytes = Beacon.Encode(BeaconType).ToList();
             Debug.WriteLine(string.Join(", ", typeBytes.Select(_ => (char)_)));
             if (Beacon.HasPrefix(bytes, typeBytes))
@@ -108,7 +108,7 @@ namespace SimplSockets
 
         private void PruneBeacons()
         {
-            var cutOff = DateTime.Now - BeaconTimeout;
+            var cutOff     = DateTime.Now - BeaconTimeout;
             var oldBeacons = currentBeacons.ToList();
             var newBeacons = oldBeacons.Where(_ => _.LastAdvertised >= cutOff).ToList();
             if (EnumsEqual(oldBeacons, newBeacons)) return;
@@ -121,11 +121,11 @@ namespace SimplSockets
         private void NewBeacon(BeaconLocation newBeacon)
         {
             var newBeacons = currentBeacons
-                .Where(_ => !_.Equals(newBeacon))
-                .Concat(new [] { newBeacon })
+                .Where  (_ => !_.Equals(newBeacon))
+                .Concat (new [] { newBeacon })
                 .OrderBy(_ => _.Data)
-                .ThenBy(_ => _.Address, IPEndPointComparer.Instance)
-                .ToList();
+                .ThenBy (_ => _.Address, IPEndPointComparer.Instance)
+                .ToList ();
             var u = BeaconsUpdated;
             if (u != null) u(newBeacons);
             currentBeacons = newBeacons;

@@ -67,9 +67,9 @@ namespace SimplSocketsClient
         public double VarDouble;
     }
 
-    /// Example of a Unity class that derives from MonoBehaviour,
+    /// Example of a class that in unity would typically derive from MonoBehaviour,
     /// This class implements a global client
-    public class ClientMonoBehaviour
+    public class ClientMonoBehaviour 
     {
         private SimplMessageClient _client;
 
@@ -89,7 +89,7 @@ namespace SimplSocketsClient
         }
     }
 
-    /// Example of a Unity class that derives from MonoBehaviour,
+    /// Example of a class that in unity would typically derive from MonoBehaviour
     /// This object is typically connected to a GameObject
     public class GameObjectMonoBehaviour
     {
