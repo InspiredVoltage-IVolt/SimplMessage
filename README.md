@@ -86,8 +86,8 @@ That's it! The Wiki goes into more depth on different topics:
 * [Receiving raw bytes using SimplSockets](../../wiki/Receiving-bytes) 
 * [Sending objects using SimplMessage](../../wiki/Sending-objects) 
 * [Receiving objects using SimplMessage](../../wiki/Receiving-objects) 
-* * [Using SimplMessage & SimplSockets in Unity](../../wiki/Unity-3D-support) 
-
+* [Using SimplMessage & SimplSockets in Unity](../../wiki/Unity-3D-support) 
+* [Asynchronous usage with async and await](../../Asynchronous-usage-with-async-and-await) 
 Credits
 ===========
 
