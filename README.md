@@ -9,7 +9,7 @@
 Quickstart
 ===========
 
-To give a sense of what the library does, Let's look at a basic example of sending an object from a client to the server
+To give a sense of what the library does, let's look at a basic example of sending an object from a client to the server
 
 ```csharp
 using System;
