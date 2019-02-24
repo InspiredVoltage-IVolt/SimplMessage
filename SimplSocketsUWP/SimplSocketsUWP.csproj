@@ -145,6 +145,9 @@
     <Compile Include="..\SimplSockets\MultiplexerData.cs">
       <Link>MultiplexerData.cs</Link>
     </Compile>
+    <Compile Include="..\SimplSockets\NetworkHelper.cs">
+      <Link>NetworkHelper.cs</Link>
+    </Compile>
     <Compile Include="..\SimplSockets\Pool.cs">
       <Link>Pool.cs</Link>
     </Compile>
@@ -160,9 +163,11 @@
     <Compile Include="..\SimplSockets\SocketErrorArgs.cs">
       <Link>SocketErrorArgs.cs</Link>
     </Compile>
-    <Compile Include="..\SimplSockets\WaitHandleExtensions.cs">
-      <Link>WaitHandleExtensions.cs</Link>
-    </Compile>
+    <Compile Include="Async\AsyncAutoResetEvent.cs" />
+    <Compile Include="Async\AsyncManualResetEvent.cs" />
+    <Compile Include="Async\TaskCompletionSource.cs" />
+    <Compile Include="Async\TaskCompletionSourceExtensions.cs" />
+    <Compile Include="Async\TaskShim.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <EmbeddedResource Include="Properties\SimplSocketsUWP.rd.xml" />
   </ItemGroup>

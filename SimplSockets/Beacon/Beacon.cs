@@ -5,7 +5,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
-
+using System.Threading.Tasks;
 namespace SimplSockets
 {
     /// <summary>
@@ -28,7 +28,7 @@ namespace SimplSockets
             udp = new UdpClient();
             udp.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
             udp.Client.Bind(new IPEndPoint(IPAddress.Any, DiscoveryPort));
-
+#if (!WINDOWS_UWP)
             try 
             {
                 udp.AllowNatTraversal(true);
@@ -37,12 +37,18 @@ namespace SimplSockets
             {
                 Debug.WriteLine("Error switching on NAT traversal: " + ex.Message);
             }
+#endif
         }
 
-        public void Start()
+        public async Task StartAsync()
         {
             Stopped = false;
-            udp.BeginReceive(ProbeReceived, null);
+
+            while (!Stopped)
+            {
+                var result = await udp.ReceiveAsync();
+                await ProbeReceivedAsync(result);
+            }            
         }
 
         public void Stop()
@@ -50,23 +56,23 @@ namespace SimplSockets
             Stopped = true;
         }
 
-        private void ProbeReceived(IAsyncResult ar)
+        private async Task ProbeReceivedAsync(UdpReceiveResult ar)
         {
-            var remote = new IPEndPoint(IPAddress.Any, 0);
-            var bytes  = udp.EndReceive(ar, ref remote);
+            Debug.WriteLine("B: Probe received");
+            var bytes = ar.Buffer;
+            var remote = ar.RemoteEndPoint;
 
             // Compare beacon type to probe type
             var typeBytes = Encode(BeaconType);
             if (HasPrefix(bytes, typeBytes))
             {
+                Debug.WriteLine($"B: Reponding to probe at {remote.Address}");
                 // If true, respond again with our type, port and payload
                 var responseData = Encode(BeaconType)
                     .Concat(BitConverter.GetBytes((ushort)IPAddress.HostToNetworkOrder((short)AdvertisedPort)))
                     .Concat(Encode(BeaconData)).ToArray();
-                udp.Send(responseData, responseData.Length, remote);
+                await udp.SendAsync(responseData, responseData.Length, remote);
             }
-
-            if (!Stopped) udp.BeginReceive(ProbeReceived, null);
         }
 
         internal static bool HasPrefix<T>(IEnumerable<T> haystack, IEnumerable<T> prefix)
@@ -110,7 +116,7 @@ namespace SimplSockets
         public string BeaconType     { get; private set; }
         public ushort AdvertisedPort { get; private set; }
         public bool Stopped          { get; private set; }
-        public string BeaconData     { get; set; }
+        public string BeaconData     { get; set;         }
 
         public void Dispose()
         {

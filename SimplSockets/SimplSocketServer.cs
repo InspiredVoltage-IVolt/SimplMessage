@@ -218,7 +218,8 @@ namespace SimplSockets
             // Start beacon if discoverable
             _beacon = new Beacon(name, (ushort)localEndpoint.Port);
             _beacon.BeaconData = description?? $"name {Dns.GetHostName()} ";
-            _beacon.Start();
+            _beacon.StartAsync();
+            //_beacon.Start();
         }
 
         /// <summary>

@@ -1,5 +1,4 @@
 ﻿using System;
-using SimplMessage;
 using System.Net;
 using SimplSockets;
 

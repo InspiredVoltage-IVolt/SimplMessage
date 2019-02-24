@@ -4,7 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
-using System.Threading;
+using System.Threading.Tasks;
 
 namespace SimplSockets
 {
@@ -23,19 +23,17 @@ namespace SimplSockets
 
         public event Action<IEnumerable<BeaconLocation>> BeaconsUpdated;
 
-        private readonly Thread thread;
-        private readonly EventWaitHandle waitHandle = new EventWaitHandle(false, EventResetMode.AutoReset);
-        private readonly UdpClient udp = new UdpClient();
-        private IEnumerable<BeaconLocation> currentBeacons = Enumerable.Empty<BeaconLocation>();
-
-        private bool running = true;
+        private  Task                        task                = null;
+        private readonly AsyncAutoResetEvent asyncAutoResetEvent = new AsyncAutoResetEvent();
+        private readonly UdpClient           udp                 = new UdpClient();
+        private IEnumerable<BeaconLocation>  currentBeacons      = Enumerable.Empty<BeaconLocation>();
+        private bool                         running             = false;
 
         public Probe(string beaconType)
         {
             udp.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
 
             BeaconType = beaconType;
-            thread     = new Thread(BackgroundLoop) { IsBackground = true };
 
             udp.Client.Bind(new IPEndPoint(IPAddress.Any, 0));
 #if (!WINDOWS_UWP)
@@ -48,18 +46,30 @@ namespace SimplSockets
                 Debug.WriteLine("Error switching on NAT traversal: " + ex.Message);
             }
 #endif
-            udp.BeginReceive(ResponseReceived, null);
+            var dummy = PollResponses();
+        }
+
+        private async Task PollResponses()
+        {
+            while (true)
+            {
+                var result = await udp.ReceiveAsync();
+                ResponseReceived(result);
+            }
         }
 
         public void Start()
         {
-            thread.Start();
+            if (running) return;
+            running = true;
+            task    = BackgroundLoopAsync();
         }
 
-        private void ResponseReceived(IAsyncResult ar)
+        private void ResponseReceived(UdpReceiveResult ar)
         {
-            var remote    = new IPEndPoint(IPAddress.Any, 0);
-            var bytes     = udp.EndReceive(ar, ref remote);
+            var bytes     = ar.Buffer;
+            var remote    = ar.RemoteEndPoint;
+            Debug.WriteLine($"P: Received response from {remote.Address}");
             var typeBytes = Beacon.Encode(BeaconType).ToList();
             Debug.WriteLine(string.Join(", ", typeBytes.Select(_ => (char)_)));
             if (Beacon.HasPrefix(bytes, typeBytes))
@@ -69,6 +79,7 @@ namespace SimplSockets
                     var portBytes = bytes.Skip(typeBytes.Count()).Take(2).ToArray();
                     var port      = (ushort)IPAddress.NetworkToHostOrder((short)BitConverter.ToUInt16(portBytes, 0));
                     var payload   = Beacon.Decode(bytes.Skip(typeBytes.Count() + 2));
+                    Debug.WriteLine($"P: New beacon {remote.Address},{port}");
                     NewBeacon(new BeaconLocation(new IPEndPoint(remote.Address, port), payload, DateTime.Now));
                 }
                 catch (Exception ex)
@@ -76,34 +87,33 @@ namespace SimplSockets
                     Debug.WriteLine(ex);
                 }
             }
-
-            udp.BeginReceive(ResponseReceived, null);
         }
 
         public string BeaconType { get; private set; }
 
-        private void BackgroundLoop()
+        private async Task BackgroundLoopAsync()
         {
             while (running)
             {
                 try
                 {
-                    BroadcastProbe();
+                    await BroadcastProbeAsync();
                 }
                 catch (Exception ex)
                 {
                     Debug.WriteLine(ex);
                 }
-
-                waitHandle.WaitOne(2000);
+                
+				await asyncAutoResetEvent.WaitAsync(2000); 
                 PruneBeacons();
             }
         }
 
-        private void BroadcastProbe()
+        private async Task BroadcastProbeAsync()
         {
+            Debug.WriteLine($"P: Broadcasting probe with discovery port {Beacon.DiscoveryPort}");
             var probe = Beacon.Encode(BeaconType).ToArray();
-            udp.Send(probe, probe.Length, new IPEndPoint(IPAddress.Broadcast, Beacon.DiscoveryPort));
+            await udp.SendAsync(probe, probe.Length, new IPEndPoint(IPAddress.Broadcast, Beacon.DiscoveryPort));
         }
 
         private void PruneBeacons()
@@ -136,18 +146,21 @@ namespace SimplSockets
             return xs.Zip(ys, (x, y) => x.Equals(y)).Count() == xs.Count();
         }
 
-        public void Stop()
+        public async Task Stop()
         {
             running = false;
-            waitHandle.Set();
-            thread.Join();
+
+            asyncAutoResetEvent.Set();
+            await task;
         }
 
         public void Dispose()
         {
             try
             {
-                Stop();
+                running = false;
+                asyncAutoResetEvent.Set();
+
             }
             catch (Exception ex)
             {

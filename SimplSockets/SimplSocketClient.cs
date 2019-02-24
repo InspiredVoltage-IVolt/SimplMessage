@@ -25,43 +25,42 @@ namespace SimplSockets
         }
 
         // Mode in which connections are set up
-        private ConnectionModes      _connectionMode        = ConnectionModes.Manual;
-        // The function that creates a new socket
-        private readonly Func<Socket> _socketFunc           = null;
-        // The currently used socket
-        private Socket                _socket               = null;
-        // Lock for socket access
-        private readonly object       _socketLock           = new object();
-        // The message buffer size to use for send/receive
-        private readonly int          _messageBufferSize    = 0;
-        // The communication timeout, in milliseconds
-        private readonly int          _communicationTimeout = 0;
-        // The maximum message size
-        private readonly int          _maxMessageSize       = 0;
-        // Whether or not to use the Nagle algorithm
-        private readonly bool         _useNagleAlgorithm    = false;
-        // The linger option
-        private readonly LingerOption _lingerOption         = new LingerOption(true, 0);
-
-        // The send buffer queue
-        private readonly BlockingQueue<SocketAsyncEventArgs> _sendBufferQueue    = null;
-        // The receive buffer queue
-        private readonly BlockingQueue<SocketAsyncEventArgs> _receiveBufferQueue = null;
-        // The send buffer manual reset event
-        private readonly ManualResetEventSlim                _sendBufferReset    = new ManualResetEventSlim(false);
-        private bool _lastStateConnected                                         = false;
-
-        // Whether or not a connection currently exists
-        private volatile bool _isConnected                                       = false;
-        private readonly object _isConnectedLock                                 = new object();
-
-        private Probe _probe                                                     = null;
-        private readonly object _beaconsLock                                     = new Object();
-        private IEnumerable<BeaconLocation> _beacons                             = null;
-
-        // The client multiplexer
-        private readonly Dictionary<int, MultiplexerData> _clientMultiplexer = null;
-        private readonly ReaderWriterLockSlim _clientMultiplexerLock = new ReaderWriterLockSlim();
+        private ConnectionModes      _connectionMode                                  = ConnectionModes.Manual;
+        // The function that creates a new socket                                     
+        private readonly Func<Socket> _socketFunc                                     = null;
+        // The currently used socket                                                  
+        private Socket                _socket                                         = null;
+        // Lock for socket access                                                     
+        private readonly object       _socketLock                                     = new object();
+        // The message buffer size to use for send/receive                            
+        private readonly int          _messageBufferSize                              = 0;
+        // The communication timeout, in milliseconds                                 
+        private readonly int          _communicationTimeout                           = 0;
+        // The maximum message size                                                   
+        private readonly int          _maxMessageSize                                 = 0;
+        // Whether or not to use the Nagle algorithm                                  
+        private readonly bool         _useNagleAlgorithm                              = false;
+        // The linger option                                                          
+        private readonly LingerOption _lingerOption                                   = new LingerOption(true, 0);
+        // The send buffer queue                                                      
+        private readonly BlockingQueue<SocketAsyncEventArgs> _sendBufferQueue         = null;
+        // The receive buffer queue                                                   
+        private readonly BlockingQueue<SocketAsyncEventArgs> _receiveBufferQueue      = null;
+        // The send buffer manual reset event                                        
+        private readonly ManualResetEventSlim                _sendBufferReset         = new ManualResetEventSlim(false);
+        private bool _lastStateConnected                                              = false;
+                                                                                     
+        // Whether or not a connection currently exists                              
+        private volatile bool _isConnected                                            = false;
+        private readonly object _isConnectedLock                                      = new object();
+                                                                                     
+        private Probe _probe                                                          = null;
+        private readonly object _beaconsLock                                          = new Object();
+        private IEnumerable<BeaconLocation> _beacons                                  = null;
+                                                                                     
+        // The client multiplexer                                                    
+        private readonly Dictionary<int, MultiplexerData> _clientMultiplexer          = null;
+        private readonly ReaderWriterLockSlim _clientMultiplexerLock                  = new ReaderWriterLockSlim();
 
         // Various pools
         private readonly Pool<MultiplexerData>      _multiplexerDataPool               = null;
@@ -182,7 +181,7 @@ namespace SimplSockets
             _clientMultiplexer    = new Dictionary<int, MultiplexerData>(PredictedThreadCount);
 
             // Create the pools
-            _multiplexerDataPool = new Pool<MultiplexerData>(PredictedThreadCount, () => new MultiplexerData { ManualResetEventSlim = new ManualResetEvent(false) }, multiplexerData => 
+            _multiplexerDataPool = new Pool<MultiplexerData>(PredictedThreadCount, () => new MultiplexerData { ManualResetEventSlim = new AsyncManualResetEvent() }, multiplexerData => 
             {
                 multiplexerData.Message = null;
                 multiplexerData.ManualResetEventSlim.Reset();
@@ -310,8 +309,7 @@ namespace SimplSockets
 
         private async Task KeepConnectedAsync(string serverName)
         {
-            var ipaddresses = Dns.GetHostAddresses(Dns.GetHostName()).ToList();
-
+            var ipaddresses = NetworkHelper.GetCurrentIpv4Addresses();
             while (_connectionMode == ConnectionModes.Discovery)
             {
                 // Check if not connected
@@ -521,7 +519,7 @@ namespace SimplSockets
             _sendBufferQueue.EnqueueFront(socketAsyncEventArgs);
 
             // Wait for our message to go ahead from the receive callback, or until the timeout is reached
-            if (!multiplexerData.ManualResetEventSlim.WaitOne(replyTimeout))
+            if (!multiplexerData.ManualResetEventSlim.Wait(replyTimeout))
             {
                 // Timeout
                 HandleCommunicationError(_socket, new TimeoutException("The connection timed out before the response message was received"));
@@ -591,8 +589,9 @@ namespace SimplSockets
             _sendBufferQueue.EnqueueFront(socketAsyncEventArgs);
 
             // Wait for our message to go ahead from the receive callback, or until the timeout is reached
-            if (!await multiplexerData.ManualResetEventSlim.WaitOneAsync(replyTimeout, new CancellationToken()))
-            {
+            //if (!await multiplexerData.ManualResetEventSlim.WaitOneAsync(replyTimeout, new CancellationToken()))
+            if (!await multiplexerData.ManualResetEventSlim.WaitAsyncR(replyTimeout))
+                {
                 // Timeout
                 HandleCommunicationError(_socket, new TimeoutException("The connection timed out before the response message was received"));
 

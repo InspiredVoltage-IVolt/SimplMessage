@@ -99,7 +99,7 @@ namespace SimplSocketsClient
 
             //Send the data, but not wait for reply
             Console.WriteLine("Client: send message but do not wait for reply");
-            var ReceiveTask = _client.SendReceiveAsync<ClassA, ClassA>(objectToSend);
+            var ReceiveTask = _client.SendReceiveAsync<ClassA, ClassA>(objectToSend,1000);
 
             // Do a bit of work
             Console.WriteLine("Client: do some work");
