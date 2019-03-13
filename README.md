@@ -96,7 +96,7 @@ This library is forked from [SimplSockets](https://github.com/haneytron/simplsoc
 
 The serialization and deserialization of objects is done using [msgpack-cli](https://github.com/msgpack/msgpack-cli) (Apache) by [Yusuke Fujiwara](https://github.com/yfakariya).
 
-The server discovery code is done using [Beacon](https://github.com/rix0rrr/beacon) (MIT) by [Rico Huijbers](https://github.com/rix0rrr)
+The server discovery code is based on [Beacon](https://github.com/rix0rrr/beacon) (MIT) by [Rico Huijbers](https://github.com/rix0rrr)
 
 
 
